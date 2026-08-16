@@ -81,19 +81,38 @@ export default function ProfilePage() {
       fetch(`/api/videos?creatorName=${encodeURIComponent(currentName)}`)
         .then(res => res.json())
         .then(data => {
+          let apiVids: any[] = [];
           if (data.success && data.videos) {
-            setRecordedVideos(data.videos.map((v: any) => ({
+            apiVids = data.videos.map((v: any) => ({
               id: v.id,
               topic: v.topic,
               description: v.description,
               recordedAt: new Date(v.recorded_at).toLocaleDateString(),
               videoUrl: v.video_data || v.video_url
-            })));
-          } else if (typeof window !== 'undefined') {
-            const saved = JSON.parse(localStorage.getItem('silverhands_recorded_videos') || '[]');
-            const userVids = saved.filter((v: any) => !v.creatorName || (v.creatorName || '').toLowerCase() === currentName.toLowerCase());
-            setRecordedVideos(userVids);
+            }));
           }
+
+          let localVids: any[] = [];
+          if (typeof window !== 'undefined') {
+            const saved = JSON.parse(localStorage.getItem('silverhands_recorded_videos') || '[]');
+            localVids = saved.filter((v: any) => !v.creatorName || (v.creatorName || '').toLowerCase() === currentName.toLowerCase());
+          }
+
+          // Merge by ID to prevent duplicates, showing the latest first
+          const merged = [...apiVids];
+          localVids.forEach((lv: any) => {
+            if (!merged.some((av: any) => av.id === lv.id)) {
+              merged.push({
+                id: lv.id,
+                topic: lv.topic,
+                description: lv.description,
+                recordedAt: lv.recordedAt ? new Date(lv.recordedAt).toLocaleDateString() : new Date().toLocaleDateString(),
+                videoUrl: lv.videoUrl
+              });
+            }
+          });
+
+          setRecordedVideos(merged);
         })
         .catch(() => {
           if (typeof window !== 'undefined') {

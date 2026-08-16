@@ -6,6 +6,7 @@ import React, {
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getSavedProfile } from '@/lib/voice-agent';
+import { saveVideoState, loadVideoState, clearVideoState } from '@/lib/video-cache';
 import {
   detectBothThumbs, detectTshape, detectBothOpenShaking,
   pushShakeHistory, ShakeHistory,
@@ -96,6 +97,7 @@ export default function CreateVideoPage() {
   const shakeHistRef  = useRef<ShakeHistory[]>([]);
   const fileInputRef  = useRef<HTMLInputElement>(null);
   const pollRef       = useRef<any>(null);
+  const isRestoringRef = useRef(true);
 
   useEffect(() => { recordStateRef.current = recordState; }, [recordState]);
 
@@ -405,6 +407,78 @@ export default function CreateVideoPage() {
   }, []);
 
   useEffect(() => () => clearTimeout(pollRef.current), []);
+
+  // ─── IndexedDB state caching: Load ─────────────────────────────────────────
+  useEffect(() => {
+    async function restoreState() {
+      try {
+        const cached = await loadVideoState();
+        if (cached && cached.stage && cached.stage !== 'choose') {
+          if (cached.saved) {
+            await clearVideoState();
+            isRestoringRef.current = false;
+            return;
+          }
+          setStage(cached.stage as Stage);
+          if (cached.sourceBlob) {
+            setSourceBlob(cached.sourceBlob);
+            setSourceUrl(URL.createObjectURL(cached.sourceBlob));
+          }
+          if (cached.uploadFileName && cached.sourceBlob) {
+            setUploadFile(new File([cached.sourceBlob], cached.uploadFileName, { type: cached.sourceBlob.type }));
+          }
+          if (cached.sessionId) setSessionId(cached.sessionId);
+          if (cached.suggestions) setSuggestions(cached.suggestions);
+          if (cached.subject) setSubject(cached.subject);
+          if (cached.selectedMode) setSelectedMode(cached.selectedMode);
+          if (cached.focusTopic) setFocusTopic(cached.focusTopic);
+          if (cached.jobId) {
+            setJobId(cached.jobId);
+            if (cached.stage === 'processing') {
+              pollJobStatus(cached.jobId);
+            }
+          }
+          if (cached.clips) setClips(cached.clips);
+          if (cached.activeClip !== undefined) setActiveClip(cached.activeClip);
+          if (cached.saved !== undefined) setSaved(cached.saved);
+        }
+      } catch (e) {
+        console.error('Failed to restore state from IndexedDB:', e);
+      } finally {
+        isRestoringRef.current = false;
+      }
+    }
+    restoreState();
+  }, [pollJobStatus]);
+
+  // ─── IndexedDB state caching: Save ─────────────────────────────────────────
+  useEffect(() => {
+    // Avoid saving if still loading the initial cached state
+    if (isRestoringRef.current) return;
+
+    if (stage === 'choose') {
+      clearVideoState();
+      return;
+    }
+
+    saveVideoState({
+      stage,
+      sourceBlob,
+      uploadFileName: uploadFile?.name,
+      sessionId,
+      suggestions,
+      subject,
+      selectedMode,
+      focusTopic,
+      jobId,
+      clips,
+      activeClip,
+      saved
+    });
+  }, [
+    stage, sourceBlob, uploadFile, sessionId, suggestions,
+    subject, selectedMode, focusTopic, jobId, clips, activeClip, saved
+  ]);
 
   // ─── Save generated clip to DB ────────────────────────────────────────────
   const handleSave = async () => {
