@@ -15,12 +15,13 @@ const preferredOllamaModel = process.env.OLLAMA_MODEL || 'qwen3:4b';
 
 const OLLAMA_MODELS_TO_TRY = Array.from(new Set([
   preferredOllamaModel,
+  'qwen2.5:3b',
+  'qwen2.5',
+  'qwen2.5:1.5b',
   'qwen3:4b',
-  'llama3.2:latest',
   'qwen2.5-coder:3b',
-  'gemma4:latest',
-  'gemma2:2b',
-  'qwen2.5'
+  'llama3.2:latest',
+  'gemma2:2b'
 ]));
 
 export async function POST(req: Request) {

@@ -1,0 +1,219 @@
+'use client';
+
+import React, { useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { saveConsumerUser } from '@/lib/consumer-store';
+import { Lock, Mail, User as UserIcon, MapPin, ArrowRight, Sparkles } from 'lucide-react';
+
+export default function ConsumerRegisterPage() {
+  const router = useRouter();
+  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [location, setLocation] = useState('Chennai');
+  const [selectedInterests, setSelectedInterests] = useState<string[]>(['Pottery', 'Cooking']);
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const availableInterests = ['Pottery', 'Traditional Cooking', 'Tanjore Painting', 'Handloom Textiles', 'Gardening', 'Organic Pickles'];
+
+  const toggleInterest = (interest: string) => {
+    if (selectedInterests.includes(interest)) {
+      setSelectedInterests(selectedInterests.filter(i => i !== interest));
+    } else {
+      setSelectedInterests([...selectedInterests, interest]);
+    }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (!email || !username || !password) {
+      setError('Please fill in all required fields.');
+      return;
+    }
+
+    setIsLoading(true);
+
+    setTimeout(() => {
+      const newUser = {
+        id: 'usr-' + Date.now(),
+        email: email.trim(),
+        username: username.trim(),
+        password,
+        location,
+        interests: selectedInterests,
+        created_at: new Date().toISOString()
+      };
+
+      saveConsumerUser(newUser);
+      setIsLoading(false);
+      router.push('/consumer/dashboard');
+    }, 600);
+  };
+
+  return (
+    <div className="min-h-screen bg-[#FAF9F6] text-[#1A1C1A] font-['Lexend',sans-serif] flex flex-col justify-center py-12 px-6 lg:px-8 antialiased">
+      <div className="sm:mx-auto sm:w-full sm:max-w-md">
+        <Link href="/" className="flex items-center justify-center gap-3 group mb-6">
+          <div className="w-12 h-12 bg-[#031635] text-[#FDBC13] rounded-2xl flex items-center justify-center font-black text-2xl shadow-lg group-hover:scale-105 transition-transform">
+            🤝
+          </div>
+          <div>
+            <span className="font-extrabold text-3xl text-[#031635] tracking-tight block">SilverHands</span>
+            <span className="text-xs font-bold text-[#FDBC13] uppercase tracking-widest block -mt-1 bg-[#031635] px-2 py-0.5 rounded-full text-center">
+              Consumer Portal
+            </span>
+          </div>
+        </Link>
+        <h2 className="text-center text-3xl font-black text-[#031635] tracking-tight">
+          Create Consumer Account
+        </h2>
+        <p className="mt-2 text-center text-sm text-[#44474E]">
+          Join to learn skills from senior experts & buy authentic handmade creations.
+        </p>
+      </div>
+
+      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+        <div className="bg-white py-8 px-6 shadow-xl rounded-3xl border border-[#E3E2E0] sm:px-10">
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 text-red-700 text-sm font-semibold rounded-2xl border border-red-200">
+              {error}
+            </div>
+          )}
+
+          <form className="space-y-4" onSubmit={handleSubmit}>
+            <div>
+              <label className="block text-sm font-bold text-[#031635] mb-1">
+                Full Name / Username
+              </label>
+              <div className="relative rounded-2xl shadow-sm">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#44474E]">
+                  <UserIcon className="h-5 w-5" />
+                </div>
+                <input
+                  type="text"
+                  required
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="e.g. Aarav Mehta"
+                  className="block w-full pl-11 pr-4 py-3 bg-[#F4F3F1] border border-[#E3E2E0] rounded-2xl text-sm font-semibold text-[#031635] focus:outline-none focus:ring-2 focus:ring-[#031635] focus:bg-white transition"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-[#031635] mb-1">
+                Email Address
+              </label>
+              <div className="relative rounded-2xl shadow-sm">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#44474E]">
+                  <Mail className="h-5 w-5" />
+                </div>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="aarav@example.com"
+                  className="block w-full pl-11 pr-4 py-3 bg-[#F4F3F1] border border-[#E3E2E0] rounded-2xl text-sm font-semibold text-[#031635] focus:outline-none focus:ring-2 focus:ring-[#031635] focus:bg-white transition"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-[#031635] mb-1">
+                Password
+              </label>
+              <div className="relative rounded-2xl shadow-sm">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#44474E]">
+                  <Lock className="h-5 w-5" />
+                </div>
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="block w-full pl-11 pr-4 py-3 bg-[#F4F3F1] border border-[#E3E2E0] rounded-2xl text-sm font-semibold text-[#031635] focus:outline-none focus:ring-2 focus:ring-[#031635] focus:bg-white transition"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-[#031635] mb-1">
+                Your City / Location
+              </label>
+              <div className="relative rounded-2xl shadow-sm">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#44474E]">
+                  <MapPin className="h-5 w-5" />
+                </div>
+                <input
+                  type="text"
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  placeholder="e.g. Chennai, Bangalore, Mumbai"
+                  className="block w-full pl-11 pr-4 py-3 bg-[#F4F3F1] border border-[#E3E2E0] rounded-2xl text-sm font-semibold text-[#031635] focus:outline-none focus:ring-2 focus:ring-[#031635] focus:bg-white transition"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-[#031635] mb-1">
+                Preferred Topics to Learn & Buy
+              </label>
+              <div className="flex flex-wrap gap-1.5 mt-1">
+                {availableInterests.map((interest) => {
+                  const isSelected = selectedInterests.includes(interest);
+                  return (
+                    <button
+                      key={interest}
+                      type="button"
+                      onClick={() => toggleInterest(interest)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-bold transition ${
+                        isSelected
+                          ? 'bg-[#031635] text-white shadow-sm'
+                          : 'bg-[#F4F3F1] text-[#44474E] hover:bg-[#E3E2E0]'
+                      }`}
+                    >
+                      {isSelected ? '✓ ' : '+ '}{interest}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full flex justify-center items-center gap-2 py-3.5 px-4 border border-transparent rounded-2xl shadow-md text-sm font-bold text-white bg-[#031635] hover:bg-[#062454] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#031635] transition mt-4"
+            >
+              {isLoading ? 'Creating Account...' : (
+                <>
+                  Complete Registration <ArrowRight className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center border-t border-[#E3E2E0] pt-5">
+            <p className="text-sm font-medium text-[#44474E]">
+              Already have an account?{' '}
+              <Link href="/consumer/login" className="font-bold text-[#031635] hover:underline">
+                Log in here
+              </Link>
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-6 text-center">
+          <Link href="/" className="text-xs font-semibold text-[#44474E] hover:text-[#031635] transition">
+            ← Switch to Senior Creator (Service Provider) Portal
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
