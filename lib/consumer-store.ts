@@ -269,6 +269,50 @@ export async function fetchLiveConsumerVideos(): Promise<ProviderVideo[]> {
   return [];
 }
 
+export async function fetchLiveConsumerProviders(): Promise<ServiceProvider[]> {
+  try {
+    const res = await fetch('/api/users/sync');
+    const data = await res.json();
+    if (data.success && Array.isArray(data.accounts)) {
+      return data.accounts.map((acc: any, index: number) => {
+        const skillsStr = Array.isArray(acc.skills)
+          ? acc.skills.map((s: any) => s.name).join(', ')
+          : (acc.skill || 'Senior Master Artisan');
+
+        let category: any = 'crafts';
+        const skillLower = (skillsStr || '').toLowerCase();
+        if (skillLower.includes('cook') || skillLower.includes('food') || skillLower.includes('recipe')) {
+          category = 'cooking';
+        } else if (skillLower.includes('potter') || skillLower.includes('clay') || skillLower.includes('terracotta')) {
+          category = 'pottery';
+        } else if (skillLower.includes('art') || skillLower.includes('paint') || skillLower.includes('tanjore')) {
+          category = 'art';
+        } else if (skillLower.includes('textile') || skillLower.includes('handloom') || skillLower.includes('knit') || skillLower.includes('weav')) {
+          category = 'textiles';
+        }
+
+        return {
+          id: acc.id || `db-provider-${index}`,
+          name: acc.user_name || 'Senior Creator',
+          skill: skillsStr,
+          category,
+          experience_years: acc.experience_years || 15,
+          location: acc.location || 'India',
+          avatar: acc.face_photo_url ? '📷' : '👵🏽',
+          bio: acc.bio || `Verified senior master artisan provider on SilverHands.`,
+          rating: 5.0,
+          reviews_count: 1,
+          hourly_rate: 499,
+          available_slots: ['Today 5:00 PM', 'Tomorrow 11:00 AM', 'Tomorrow 4:00 PM']
+        };
+      });
+    }
+  } catch (e) {
+    console.warn('[ConsumerStore] Error fetching PostgreSQL creators:', e);
+  }
+  return getRegisteredProvidersFromStorage();
+}
+
 export function getRegisteredProvidersFromStorage(): ServiceProvider[] {
   if (typeof window === 'undefined') return [];
   try {

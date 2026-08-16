@@ -18,8 +18,8 @@ export async function GET(req: Request) {
         return NextResponse.json({ success: true, versions: res.rows });
       }
 
-      // Fetch all public / published videos
-      let query = `
+      // Fetch from new videos table
+      let newQuery = `
         SELECT 
           v.id, v.creator_id, v.title, v.description, v.video_type, v.status, 
           v.source_type, v.storage_key, v.thumbnail_key, v.duration_seconds, 
@@ -29,16 +29,55 @@ export async function GET(req: Request) {
         FROM videos v
         LEFT JOIN user_accounts u ON v.creator_id = u.id
       `;
-      const params: any[] = [];
-
+      const newParams: any[] = [];
       if (creatorName) {
-        query += ` WHERE LOWER(u.user_name) = LOWER($1)`;
-        params.push(creatorName);
+        newQuery += ` WHERE LOWER(u.user_name) = LOWER($1)`;
+        newParams.push(creatorName);
       }
-      query += ` ORDER BY v.created_at DESC`;
+      newQuery += ` ORDER BY v.created_at DESC`;
 
-      const res = await pool.query(query, params);
-      return NextResponse.json({ success: true, videos: res.rows, source: 'postgresql' });
+      // Fetch from legacy recorded_videos table
+      let legacyQuery = `
+        SELECT 
+          id, NULL as creator_id, topic as title, description, 
+          'tutorial' as video_type, 'READY' as status, 'RECORDED' as source_type,
+          video_url as storage_key, NULL as thumbnail_key, 60 as duration_seconds,
+          NULL as transcript, 0 as views, 0 as likes, recorded_at as created_at,
+          recorded_at as updated_at, recorded_at as published_at,
+          creator_name, NULL as creator_avatar,
+          (SELECT COUNT(*)::int FROM video_comments WHERE video_id = id) as comments_count
+        FROM recorded_videos
+      `;
+      const legacyParams: any[] = [];
+      if (creatorName) {
+        legacyQuery += ` WHERE LOWER(creator_name) = LOWER($1)`;
+        legacyParams.push(creatorName);
+      }
+      legacyQuery += ` ORDER BY recorded_at DESC`;
+
+      const [resNew, resLegacy] = await Promise.all([
+        pool.query(newQuery, newParams),
+        pool.query(legacyQuery, legacyParams)
+      ]);
+
+      const seen = new Set();
+      const mergedVideos = [];
+
+      for (const row of resNew.rows) {
+        if (!seen.has(row.id)) {
+          seen.add(row.id);
+          mergedVideos.push(row);
+        }
+      }
+
+      for (const row of resLegacy.rows) {
+        if (!seen.has(row.id)) {
+          seen.add(row.id);
+          mergedVideos.push(row);
+        }
+      }
+
+      return NextResponse.json({ success: true, videos: mergedVideos, source: 'postgresql' });
     }
 
     // Fallback using memory store

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { 
   getSavedConsumerUser, logoutConsumer, ConsumerUser, 
-  fetchLiveConsumerProducts, fetchLiveConsumerListings, fetchLiveConsumerVideos, getRegisteredProvidersFromStorage,
+  fetchLiveConsumerProducts, fetchLiveConsumerListings, fetchLiveConsumerVideos, fetchLiveConsumerProviders, getRegisteredProvidersFromStorage,
   SeniorProduct, LiveSession, ServiceProvider, FreeLiveSession, ProviderVideo 
 } from '@/lib/consumer-store';
 import { 
@@ -58,12 +58,12 @@ export default function ConsumerDashboardPage() {
 
   const loadAllConsumerData = async () => {
     try {
-      const [prods, lists, vids] = await Promise.all([
+      const [prods, lists, vids, regProviders] = await Promise.all([
         fetchLiveConsumerProducts(),
         fetchLiveConsumerListings(),
-        fetchLiveConsumerVideos()
+        fetchLiveConsumerVideos(),
+        fetchLiveConsumerProviders()
       ]);
-      const regProviders = getRegisteredProvidersFromStorage();
 
       setProducts(prods);
       setSessions(lists);
