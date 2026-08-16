@@ -271,7 +271,7 @@ export default function ProfilePage() {
             {isOwnProfile && (
               <div className="shrink-0 flex flex-col gap-3 w-full md:w-auto">
                 <button
-                  onClick={() => router.push('/')}
+                  onClick={() => router.push('/provider?edit=true')}
                   className="px-6 py-3.5 bg-[#FDBC13] text-[#261900] font-bold rounded-2xl shadow-md hover:bg-[#F3B20B] transition flex items-center justify-center gap-2"
                 >
                   <Mic className="w-5 h-5" /> Edit Profile with Voice

@@ -54,17 +54,7 @@ export default function DashboardPage() {
       border: 'border-amber-200',
       onClick: () => router.push('/products'),
     },
-    {
-      id: 'voice',
-      emoji: '🎙️',
-      label: 'Talk to Assistant',
-      sublabel: 'Speak any question or command',
-      bg: 'bg-[#FDBC13]',
-      text: 'text-[#1A1C1A]',
-      accent: 'text-[#031635]',
-      border: 'border-[#FDBC13]',
-      onClick: () => router.push('/'),
-    },
+
     {
       id: 'profile',
       emoji: '👤',
@@ -199,12 +189,6 @@ export default function DashboardPage() {
             <Package className="w-5 h-5" /> My Products
           </Link>
           <Link
-            href="/"
-            className="flex items-center gap-2 px-6 py-3 bg-white border-2 border-[#E3E2E0] hover:border-[#031635] rounded-2xl text-base font-bold text-[#031635] transition shadow-sm"
-          >
-            <Mic className="w-5 h-5" /> Voice Assistant
-          </Link>
-          <Link
             href="/profile"
             className="flex items-center gap-2 px-6 py-3 bg-white border-2 border-[#E3E2E0] hover:border-[#031635] rounded-2xl text-base font-bold text-[#031635] transition shadow-sm"
           >
@@ -220,7 +204,7 @@ export default function DashboardPage() {
 
         {/* Footer note */}
         <p className="text-center text-base text-[#75777F] font-medium pb-4">
-          Need help? Tap <strong className="text-[#031635]">Talk to Assistant</strong> and speak your question.
+          Need help? Navigate to <strong className="text-[#031635]">My Profile</strong> and click <strong className="text-[#031635]">Edit Profile with Voice</strong> to update details.
         </p>
 
       </main>

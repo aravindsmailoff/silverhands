@@ -57,8 +57,18 @@ export default function VoiceConversationalApp() {
     // Auto-initialize Railway PostgreSQL database schema
     fetch('/api/db/init').catch((err) => console.warn('[DB Init Warning]:', err));
 
+    const urlParams = new URLSearchParams(window.location.search);
+    const isEdit = urlParams.get('edit') === 'true';
     const saved = getSavedProfile();
-    if (saved && saved.name && saved.name !== 'Senior Creator') {
+
+    if (isEdit && saved && saved.name) {
+      voiceAgent.setEditMode(saved);
+      setProfileState(saved);
+      setIsLoggedIn(true);
+      setHasStarted(true);
+      setCurrentAiQuestion(voiceAgent.getCurrentQuestion());
+      setConversationState('ASKING_CORRECTION');
+    } else if (saved && saved.name && saved.name !== 'Senior Creator') {
       setProfileState(saved);
       setIsLoggedIn(true);
     } else {

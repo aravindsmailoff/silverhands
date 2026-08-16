@@ -480,6 +480,17 @@ export class VoiceAgentEngine {
     this.isProcessing = false;
   }
 
+  public setEditMode(profile: ProfileState): void {
+    this.candidateProfile = { ...profile };
+    this.confirmedProfile = { ...profile };
+    this.conversationState = 'ASKING_CORRECTION';
+    this.currentQuestion = `Welcome back! I have loaded your current profile. What details would you like to update? You can say things like 'Update my location' or 'Add a skill'.`;
+    this.targetField = null;
+    this.activeSkillIndex = 0;
+    this.conversationHistory = [];
+    this.isProcessing = false;
+  }
+
   public speakQuestion(text: string, onEnd?: () => void): void {
     this.currentQuestion = text;
     this.conversationHistory.push({ role: 'assistant', text });
