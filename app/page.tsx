@@ -60,9 +60,12 @@ export default function VoiceConversationalApp() {
     setCurrentAiQuestion("Welcome to SilverHands! I will help you create your profile using voice. What is your name?");
   };
 
-  // Start Create Account onboarding flow
+  // Start a fresh new interactive voice conversation loop on homepage
   const handleStartConversation = () => {
-    router.push('/onboarding/voice');
+    voiceAgent.resetState();
+    setProfileState(voiceAgent.getProfileState());
+    setHasStarted(true);
+    triggerAiSpeaking(currentAiQuestion);
   };
 
   // AI speaks question out loud, then opens mic automatically

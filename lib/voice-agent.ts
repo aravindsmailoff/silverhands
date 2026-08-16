@@ -324,42 +324,63 @@ export class VoiceAgentEngine {
     this.isProcessing = false;
   }
 
-  public async speakQuestion(text?: string, onEndCallback?: () => void): Promise<void> {
-    const q = text || "Welcome to SilverHands! What is your name and expertise?";
-    voiceService.speak(q, 'en-IN');
-    if (onEndCallback) {
-      setTimeout(onEndCallback, 2000);
-    }
+  public speakQuestion(text: string, onEnd?: () => void): void {
+    voiceService.speak(text, 'en-IN', onEnd);
   }
 
-  public async processUserSpeech(userSpeechText: string): Promise<AgentTurnResponse> {
-    this.isProcessing = true;
-    this.conversationHistory.push({ role: 'user', text: userSpeechText });
-
-    const activeUser = getActiveUserAccount() || 'Senior Creator';
-    const profile = getSavedProfile(activeUser);
-
-    if (!profile.name) {
-      profile.name = userSpeechText;
-    } else if (!profile.skill) {
-      profile.skill = userSpeechText;
+  public async processUserSpeech(userSpeech: string): Promise<AgentTurnResponse> {
+    if (this.isProcessing) {
+      throw new Error('Voice agent is currently processing previous speech turn.');
     }
 
-    saveProfileState(profile, activeUser);
-    this.currentProfile = profile;
-    this.isProcessing = false;
+    this.isProcessing = true;
+    this.conversationHistory.push({ role: 'user', text: userSpeech });
 
-    const reply = `Thank you ${profile.name || ''}. Your profile has been updated.`;
-    voiceService.speak(reply, 'en-IN');
-    this.conversationHistory.push({ role: 'assistant', text: reply });
+    try {
+      const res = await fetch('/api/ai/voice-agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          current_profile: this.currentProfile,
+          conversation_history: this.conversationHistory,
+          user_speech: userSpeech
+        })
+      });
 
-    return {
-      extracted_data: profile,
-      next_question: "Is there anything else you would like to add?",
-      updated_profile: profile,
-      completed: true,
-      confirmation_mode: false
-    };
+      const data = await res.json();
+
+      if (data.success && data.turn) {
+        const turn: AgentTurnResponse = data.turn;
+        this.currentProfile = turn.updated_profile;
+        if (turn.updated_profile.name) {
+          saveProfileState(turn.updated_profile, turn.updated_profile.name);
+        }
+        this.conversationHistory.push({ role: 'assistant', text: turn.next_question });
+        return turn;
+      } else {
+        const fallbackQuestion = "Thank you. Could you tell me more about your skills and experience?";
+        this.conversationHistory.push({ role: 'assistant', text: fallbackQuestion });
+        return {
+          extracted_data: {},
+          next_question: fallbackQuestion,
+          updated_profile: this.currentProfile,
+          completed: false,
+          confirmation_mode: false
+        };
+      }
+    } catch (err) {
+      console.error('Error processing speech with voice agent API:', err);
+      const fallbackQuestion = "I am listening. Please tell me your name or skill.";
+      return {
+        extracted_data: {},
+        next_question: fallbackQuestion,
+        updated_profile: this.currentProfile,
+        completed: false,
+        confirmation_mode: false
+      };
+    } finally {
+      this.isProcessing = false;
+    }
   }
 }
 
