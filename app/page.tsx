@@ -369,7 +369,7 @@ export default function VoiceConversationalApp() {
               </div>
 
               {/* User Live Spoken Transcript Card */}
-              <div className="w-full bg-white border-2 border-[#C5C6CF] rounded-2xl p-5 text-center space-y-2 shadow-md">
+              <div className="w-full bg-white border-2 border-[#C5C6CF] rounded-2xl p-5 text-center space-y-3 shadow-md">
                 <span className="text-xs uppercase font-extrabold text-[#44474E] tracking-wider">
                   You Spoke:
                 </span>
@@ -377,14 +377,26 @@ export default function VoiceConversationalApp() {
                   {userTranscript ? `"${userTranscript}"` : (agentState === 'LISTENING_TO_YOU' ? 'Listening for your spoken words...' : 'Waiting for audio...')}
                 </p>
 
-                {userTranscript && agentState === 'LISTENING_TO_YOU' && (
+                <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+                  {userTranscript && agentState === 'LISTENING_TO_YOU' && (
+                    <button
+                      onClick={() => handleSendUserSpeech()}
+                      className="px-6 py-2.5 bg-[#031635] text-white text-sm font-bold rounded-xl shadow-md hover:bg-[#1a2b4b] transition"
+                    >
+                      Submit Spoken Answer ➔
+                    </button>
+                  )}
+
                   <button
-                    onClick={() => handleSendUserSpeech()}
-                    className="mt-3 px-6 py-2.5 bg-[#031635] text-white text-sm font-bold rounded-xl shadow-md hover:bg-[#1a2b4b] transition"
+                    onClick={() => {
+                      setUserTranscript('');
+                      startListeningToUser();
+                    }}
+                    className="px-4 py-2 bg-[#FDBC13] text-[#261900] text-xs font-extrabold rounded-xl shadow hover:bg-[#F3B20B] transition flex items-center gap-1.5"
                   >
-                    Submit Spoken Answer ➔
+                    <Mic className="w-4 h-4" /> Re-speak / Correct Answer
                   </button>
-                )}
+                </div>
               </div>
 
             </div>
@@ -407,7 +419,20 @@ export default function VoiceConversationalApp() {
             <div className="space-y-3 text-sm">
               {/* Field 1: Name */}
               <div className={`p-3.5 rounded-2xl border transition-all ${profileState.name ? 'bg-[#2D5A27]/10 border-[#2D5A27]/30' : 'bg-[#F4F3F1] border-[#E3E2E0]'}`}>
-                <div className="text-xs font-semibold text-[#44474E]">Full Name</div>
+                <div className="flex items-center justify-between text-xs font-semibold text-[#44474E]">
+                  <span>Full Name</span>
+                  {profileState.name && (
+                    <button
+                      onClick={() => {
+                        setProfileState(prev => ({ ...prev, name: null }));
+                        triggerAiSpeaking("What is your correct full name?");
+                      }}
+                      className="text-[11px] font-extrabold text-[#031635] hover:underline flex items-center gap-1"
+                    >
+                      ✏️ Fix Name
+                    </button>
+                  )}
+                </div>
                 <div className="text-base font-extrabold text-[#031635] flex items-center justify-between mt-0.5">
                   <span>{profileState.name || 'Not collected yet...'}</span>
                   {profileState.name && <CheckCircle2 className="w-5 h-5 text-[#2D5A27]" />}
@@ -416,7 +441,20 @@ export default function VoiceConversationalApp() {
 
               {/* Field 2: Skill */}
               <div className={`p-3.5 rounded-2xl border transition-all ${profileState.skill ? 'bg-[#2D5A27]/10 border-[#2D5A27]/30' : 'bg-[#F4F3F1] border-[#E3E2E0]'}`}>
-                <div className="text-xs font-semibold text-[#44474E]">Primary Skill / Offering</div>
+                <div className="flex items-center justify-between text-xs font-semibold text-[#44474E]">
+                  <span>Primary Skill / Offering</span>
+                  {profileState.skill && (
+                    <button
+                      onClick={() => {
+                        setProfileState(prev => ({ ...prev, skill: null }));
+                        triggerAiSpeaking("What is your correct skill or expertise?");
+                      }}
+                      className="text-[11px] font-extrabold text-[#031635] hover:underline flex items-center gap-1"
+                    >
+                      ✏️ Fix Skill
+                    </button>
+                  )}
+                </div>
                 <div className="text-base font-extrabold text-[#031635] flex items-center justify-between mt-0.5">
                   <span>{profileState.skill || 'Not collected yet...'}</span>
                   {profileState.skill && <CheckCircle2 className="w-5 h-5 text-[#2D5A27]" />}
@@ -425,7 +463,20 @@ export default function VoiceConversationalApp() {
 
               {/* Field 3: Experience */}
               <div className={`p-3.5 rounded-2xl border transition-all ${profileState.experience_years !== null ? 'bg-[#2D5A27]/10 border-[#2D5A27]/30' : 'bg-[#F4F3F1] border-[#E3E2E0]'}`}>
-                <div className="text-xs font-semibold text-[#44474E]">Experience</div>
+                <div className="flex items-center justify-between text-xs font-semibold text-[#44474E]">
+                  <span>Experience</span>
+                  {profileState.experience_years !== null && (
+                    <button
+                      onClick={() => {
+                        setProfileState(prev => ({ ...prev, experience_years: null }));
+                        triggerAiSpeaking("How many years of experience do you have?");
+                      }}
+                      className="text-[11px] font-extrabold text-[#031635] hover:underline flex items-center gap-1"
+                    >
+                      ✏️ Fix Experience
+                    </button>
+                  )}
+                </div>
                 <div className="text-base font-extrabold text-[#031635] flex items-center justify-between mt-0.5">
                   <span>{profileState.experience_years !== null ? `${profileState.experience_years} Years` : 'Not collected yet...'}</span>
                   {profileState.experience_years !== null && <CheckCircle2 className="w-5 h-5 text-[#2D5A27]" />}
@@ -434,7 +485,20 @@ export default function VoiceConversationalApp() {
 
               {/* Field 4: Location */}
               <div className={`p-3.5 rounded-2xl border transition-all ${profileState.location ? 'bg-[#2D5A27]/10 border-[#2D5A27]/30' : 'bg-[#F4F3F1] border-[#E3E2E0]'}`}>
-                <div className="text-xs font-semibold text-[#44474E]">Location / City</div>
+                <div className="flex items-center justify-between text-xs font-semibold text-[#44474E]">
+                  <span>Location / City</span>
+                  {profileState.location && (
+                    <button
+                      onClick={() => {
+                        setProfileState(prev => ({ ...prev, location: null }));
+                        triggerAiSpeaking("Which city or locality are you located in?");
+                      }}
+                      className="text-[11px] font-extrabold text-[#031635] hover:underline flex items-center gap-1"
+                    >
+                      ✏️ Fix Location
+                    </button>
+                  )}
+                </div>
                 <div className="text-base font-extrabold text-[#031635] flex items-center justify-between mt-0.5">
                   <span>{profileState.location || 'Not collected yet...'}</span>
                   {profileState.location && <CheckCircle2 className="w-5 h-5 text-[#2D5A27]" />}

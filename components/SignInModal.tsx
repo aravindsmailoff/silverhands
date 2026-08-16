@@ -429,20 +429,12 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
           )}
 
           {/* Bottom Action Footer */}
-          <div className="pt-4 border-t border-[#E3E2E0] flex items-center justify-between">
+          <div className="pt-4 border-t border-[#E3E2E0] flex items-center justify-center">
             <button
               onClick={() => { stopCamera(); onClose(); router.push('/onboarding/voice'); }}
               className="text-xs font-extrabold text-[#031635] hover:underline flex items-center gap-1"
             >
               + Create New Account
-            </button>
-
-            <button
-              onClick={handleResetDatabase}
-              className="text-xs font-bold text-rose-600 hover:text-rose-800 flex items-center gap-1"
-              title="Wipe database and start blank"
-            >
-              <Trash2 className="w-3.5 h-3.5" /> Reset Database
             </button>
           </div>
 
