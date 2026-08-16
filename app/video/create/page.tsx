@@ -423,6 +423,23 @@ export default function CreateVideoPage() {
           creatorName: profile?.name,
         }),
       });
+      
+      // Fallback for when Postgres is disconnected
+      try {
+        const savedVideos = JSON.parse(localStorage.getItem('silverhands_recorded_videos') || '[]');
+        savedVideos.push({
+          id: `vid-${Date.now()}`,
+          topic: clip.title || subject || 'SilverHands Video',
+          description: clip.hook_text || clip.title || '',
+          videoUrl: clip.video_url || '',
+          creatorName: profile?.name,
+          recordedAt: new Date().toISOString()
+        });
+        localStorage.setItem('silverhands_recorded_videos', JSON.stringify(savedVideos));
+      } catch (e) {
+        console.error('Failed to save to local storage', e);
+      }
+      
       setSaved(true);
     } catch { /* silent */ }
     setIsSaving(false);
