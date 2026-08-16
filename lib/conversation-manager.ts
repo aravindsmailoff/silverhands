@@ -89,19 +89,28 @@ export function classifyIntent(speech: string, lastAssistantMessage: string = ''
     return 'add_information';
   }
 
-  // 4. Check for targeted corrections (e.g. "No, actually 4 years", "My skill is Pottery not Tailoring")
+  // 4. Check for targeted corrections (e.g. "No, actually 4 years", "My skill is Pottery not Tailoring", "Sorry, I meant Chennai")
   if (
     text.startsWith('no,') ||
-    text.startsWith('actually, it') ||
-    text.startsWith('actually i have') ||
-    text.startsWith('actually it is') ||
+    text.startsWith('actually') ||
+    text.startsWith('sorry') ||
+    text.includes('i meant') ||
+    text.includes(' meant ') ||
+    text.includes('make that') ||
+    text.includes('change that') ||
+    text.includes('i moved') ||
+    text.includes("don't do") ||
+    text.includes("not doing") ||
+    text.includes("remove ") ||
+    text.includes("no longer") ||
     text.includes('i have only') ||
     text.includes('my experience is') ||
     text.includes('my skill is') ||
     text.includes('not that') ||
     text.includes('that is wrong') ||
     text.includes('i only have') ||
-    text.includes('instead of')
+    text.includes('instead of') ||
+    text.includes('instead')
   ) {
     return 'correct_previous';
   }
@@ -421,55 +430,69 @@ export async function manageConversationTurn(
   }
 
   // =========================================================================
-  // INTENT BRANCH 3: CORRECTION ("No, actually 4 years", "My skill is Pottery", etc.)
+  // INTENT BRANCH 3: TARGETED CORRECTIONS ("Actually 4 years", "Moved to Bangalore", "No cooking", etc.)
   // =========================================================================
   if (intent === 'correct_previous') {
     nextAction = 'confirm';
     let appliedCorrection = false;
+    const lowerSpeech = cleanSpeech.toLowerCase();
 
-    // Check LLM corrections
-    if (Array.isArray(llmResult?.corrections) && llmResult.corrections.length > 0) {
-      for (const c of llmResult.corrections) {
-        if (c.field === 'name' && c.new_value) {
-          updatedProfile.name = String(c.new_value);
-          appliedCorrection = true;
-        } else if (c.field === 'experience' && (typeof c.new_value === 'number' || !isNaN(Number(c.new_value)))) {
-          const numVal = Number(c.new_value);
-          if (c.skill_name && updatedProfile.skills) {
-            const sk = updatedProfile.skills.find(s => s.name.toLowerCase().includes(c.skill_name!.toLowerCase()));
-            if (sk) sk.experience_years = numVal;
-          } else if (updatedProfile.skills && updatedProfile.skills.length > 0) {
-            updatedProfile.skills[0].experience_years = numVal;
-          }
-          appliedCorrection = true;
-        } else if (c.field === 'location' && c.new_value) {
-          const loc = validateAndParseLocation(String(c.new_value));
-          if (loc.formatted_address) updatedProfile.location = loc.formatted_address;
-          appliedCorrection = true;
-        }
+    // 1. Check for Skill Removal (e.g. "I don't do painting anymore", "remove painting")
+    if (lowerSpeech.includes("don't do") || lowerSpeech.includes("not doing") || lowerSpeech.includes("remove") || lowerSpeech.includes("no longer do")) {
+      const skillsBefore = updatedProfile.skills || [];
+      const filtered = skillsBefore.filter(s => !lowerSpeech.includes(s.name.toLowerCase().split(' ')[0]));
+      if (filtered.length < skillsBefore.length) {
+        updatedProfile.skills = filtered;
+        appliedCorrection = true;
       }
     }
 
-    // Deterministic fallback correction parser
+    // 2. Check for Skill Replacement (e.g. "No, I meant tailoring, not cooking")
+    if (!appliedCorrection && (lowerSpeech.includes(" meant ") || lowerSpeech.includes("not ")) && (lowerSpeech.includes("tailor") || lowerSpeech.includes("pottery") || lowerSpeech.includes("cook") || lowerSpeech.includes("teach"))) {
+      const normNew = normalizeSkill(cleanSpeech).normalized;
+      if (normNew && updatedProfile.skills && updatedProfile.skills.length > 0) {
+        updatedProfile.skills[0].name = normNew;
+        appliedCorrection = true;
+      }
+    }
+
+    // 3. Check for Experience Updates (e.g. "Actually make that 7 years", "painting 7 years")
     if (!appliedCorrection) {
-      const parsedCorr = parseCorrectionIntent(cleanSpeech);
-      if (parsedCorr.intent === 'inline_correction' && parsedCorr.targetField && parsedCorr.extractedValue !== undefined) {
-        if (parsedCorr.targetField === 'experience_years') {
-          const numVal = Number(parsedCorr.extractedValue);
-          if (updatedProfile.skills && updatedProfile.skills.length > 0) {
-            updatedProfile.skills[0].experience_years = numVal;
+      const expRes = normalizeExperience(cleanSpeech);
+      if (expRes.experience_years !== null && updatedProfile.skills && updatedProfile.skills.length > 0) {
+        // Check if a specific skill was mentioned in the correction
+        let matchedIdx = -1;
+        for (let i = 0; i < updatedProfile.skills.length; i++) {
+          const firstWord = updatedProfile.skills[i].name.toLowerCase().split(' ')[0];
+          if (lowerSpeech.includes(firstWord)) {
+            matchedIdx = i;
+            break;
           }
-        } else if (parsedCorr.targetField === 'skill') {
-          const norm = normalizeSkill(String(parsedCorr.extractedValue)).normalized || String(parsedCorr.extractedValue);
-          if (updatedProfile.skills && updatedProfile.skills.length > 0) {
-            updatedProfile.skills[0].name = norm;
-          }
-        } else if (parsedCorr.targetField === 'location') {
-          const loc = validateAndParseLocation(String(parsedCorr.extractedValue));
-          if (loc.formatted_address) updatedProfile.location = loc.formatted_address;
-        } else if (parsedCorr.targetField === 'name') {
-          updatedProfile.name = String(parsedCorr.extractedValue);
         }
+        if (matchedIdx !== -1) {
+          updatedProfile.skills[matchedIdx].experience_years = expRes.experience_years;
+        } else {
+          updatedProfile.skills[0].experience_years = expRes.experience_years;
+        }
+        appliedCorrection = true;
+      }
+    }
+
+    // 4. Check for Location Updates (e.g. "Actually I moved to Bangalore", "Coimbatore not Chennai")
+    if (!appliedCorrection) {
+      const locVal = validateAndParseLocation(cleanSpeech);
+      if (!locVal.needs_clarification && (locVal.city || locVal.locality)) {
+        updatedProfile.location = locVal.formatted_address;
+        appliedCorrection = true;
+      }
+    }
+
+    // 5. Check for Name Updates (e.g. "My name is Haresh not Harish")
+    if (!appliedCorrection) {
+      const nameRes = normalizeName(cleanSpeech);
+      if (nameRes.name) {
+        updatedProfile.name = nameRes.name;
+        appliedCorrection = true;
       }
     }
 
@@ -483,17 +506,13 @@ export async function manageConversationTurn(
     if (missingState.missing.length === 0) {
       nextAction = 'confirm';
       const skillSummary = (updatedProfile.skills || []).map(s => `${s.name} (${s.experience_years} years)`).join(', ');
-      if (!assistantResponse) {
-        assistantResponse = `Got it, I have updated that. Here is your current profile: ${skillSummary}, located in ${updatedProfile.location}. Is that correct?`;
-      }
+      assistantResponse = `Got it, I have updated that. Here is your current profile: your skills are ${skillSummary}, and you are located in ${updatedProfile.location}. Is that correct?`;
     } else {
       nextAction = 'collect_information';
-      if (!assistantResponse) {
-        if (missingState.skillNeedingExperience) {
-          assistantResponse = `Updated. How many years of experience do you have in ${missingState.skillNeedingExperience.name}?`;
-        } else if (missingState.missing.includes('location')) {
-          assistantResponse = `Updated. Which city or locality are you located in?`;
-        }
+      if (missingState.skillNeedingExperience) {
+        assistantResponse = `Updated. How many years of experience do you have in ${missingState.skillNeedingExperience.name}?`;
+      } else if (missingState.missing.includes('location')) {
+        assistantResponse = `Updated. Which city or locality in India are you located in?`;
       }
     }
 
@@ -581,37 +600,62 @@ export async function manageConversationTurn(
   }
 
   // 2. Skills Extraction (Supports Multiple Skills & Inline Per-Skill Experience)
-  if (Array.isArray(llmResult?.extracted_skills) && llmResult.extracted_skills.length > 0) {
-    for (const gSkill of llmResult.extracted_skills) {
-      const norm = normalizeSkill(gSkill.name || '').normalized || gSkill.name;
-      if (norm && norm.length >= 3 && !norm.toLowerCase().includes('experience') && !norm.toLowerCase().includes('i have of')) {
-        const existingIdx = (updatedProfile.skills || []).findIndex(s => s.name.toLowerCase() === norm.toLowerCase());
-        if (existingIdx !== -1) {
-          if (typeof gSkill.experience_years === 'number') {
-            updatedProfile.skills![existingIdx].experience_years = gSkill.experience_years;
+  const wasAskedLocation = (lastAssistantMessage || '').toLowerCase().includes('city') ||
+    (lastAssistantMessage || '').toLowerCase().includes('locality') ||
+    (lastAssistantMessage || '').toLowerCase().includes('located') ||
+    (lastAssistantMessage || '').toLowerCase().includes('where');
+  const wasAskedSkill = (lastAssistantMessage || '').toLowerCase().includes('skill') || 
+    (lastAssistantMessage || '').toLowerCase().includes('craft') || 
+    (lastAssistantMessage || '').toLowerCase().includes('offer') ||
+    (lastAssistantMessage || '').toLowerCase().includes('teach') ||
+    (lastAssistantMessage || '').toLowerCase().includes('subject');
+
+  const shouldExtractSkills = wasAskedSkill || 
+    intent === 'add_information' || 
+    (!wasAskedLocation && (!updatedProfile.skills || updatedProfile.skills.length === 0));
+
+  if (shouldExtractSkills) {
+    if (Array.isArray(llmResult?.extracted_skills) && llmResult.extracted_skills.length > 0) {
+      for (const gSkill of llmResult.extracted_skills) {
+        const norm = normalizeSkill(gSkill.name || '').normalized || gSkill.name;
+        if (norm && norm.length >= 3 && !norm.toLowerCase().includes('experience') && !norm.toLowerCase().includes('i have of')) {
+          const existingIdx = (updatedProfile.skills || []).findIndex(s => s.name.toLowerCase() === norm.toLowerCase());
+          if (existingIdx !== -1) {
+            if (typeof gSkill.experience_years === 'number') {
+              updatedProfile.skills![existingIdx].experience_years = gSkill.experience_years;
+            }
+          } else {
+            updatedProfile.skills!.push({
+              name: norm,
+              type: gSkill.type || (updatedProfile.skills!.length === 0 ? 'primary' : 'additional'),
+              experience_years: typeof gSkill.experience_years === 'number' ? gSkill.experience_years : null
+            });
           }
-        } else {
-          updatedProfile.skills!.push({
-            name: norm,
-            type: gSkill.type || (updatedProfile.skills!.length === 0 ? 'primary' : 'additional'),
-            experience_years: typeof gSkill.experience_years === 'number' ? gSkill.experience_years : null
-          });
+        }
+      }
+    } else {
+      // Deterministic fallback multi-skill extractor
+      const extractedList = normalizeSkillsList(cleanSpeech);
+      for (const eSkill of extractedList) {
+        if (!eSkill.name.toLowerCase().includes('experience') && !eSkill.name.toLowerCase().includes('i have of')) {
+          const existingIdx = (updatedProfile.skills || []).findIndex(s => s.name.toLowerCase() === eSkill.name.toLowerCase());
+          if (existingIdx !== -1) {
+            if (eSkill.experience_years !== null) {
+              updatedProfile.skills![existingIdx].experience_years = eSkill.experience_years;
+            }
+          } else {
+            updatedProfile.skills!.push(eSkill);
+          }
         }
       }
     }
   } else {
-    // Deterministic fallback multi-skill extractor
+    // If not creating new skills, check if user provided inline experience for existing skills
     const extractedList = normalizeSkillsList(cleanSpeech);
     for (const eSkill of extractedList) {
-      if (!eSkill.name.toLowerCase().includes('experience') && !eSkill.name.toLowerCase().includes('i have of')) {
-        const existingIdx = (updatedProfile.skills || []).findIndex(s => s.name.toLowerCase() === eSkill.name.toLowerCase());
-        if (existingIdx !== -1) {
-          if (eSkill.experience_years !== null) {
-            updatedProfile.skills![existingIdx].experience_years = eSkill.experience_years;
-          }
-        } else {
-          updatedProfile.skills!.push(eSkill);
-        }
+      const existingIdx = (updatedProfile.skills || []).findIndex(s => s.name.toLowerCase() === eSkill.name.toLowerCase());
+      if (existingIdx !== -1 && eSkill.experience_years !== null) {
+        updatedProfile.skills![existingIdx].experience_years = eSkill.experience_years;
       }
     }
   }
@@ -629,19 +673,16 @@ export async function manageConversationTurn(
     }
   }
 
-  // 4. Location Extraction (Strictly validates actual Indian geographic entities)
-  if (llmResult?.extracted_location) {
-    const locVal = validateAndParseLocation(llmResult.extracted_location);
+  // 4. Location Extraction (Strict Meaning-First Indian Geolocation)
+  let locationClarificationMsg: string | null = null;
+  const isPureNumber = /^(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s*(?:years?|yrs?)?$/i.test(cleanSpeech.trim());
+
+  if (!isPureNumber) {
+    const locVal = validateAndParseLocation(llmResult?.extracted_location || cleanSpeech);
     if (!locVal.needs_clarification && (locVal.city || locVal.locality)) {
       updatedProfile.location = locVal.formatted_address;
-    }
-  } else if (!updatedProfile.location) {
-    const isPureNumber = /^(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s*(?:years?|yrs?)?$/i.test(cleanSpeech.trim());
-    if (!isPureNumber) {
-      const locVal = validateAndParseLocation(cleanSpeech);
-      if (!locVal.needs_clarification && (locVal.city || locVal.locality)) {
-        updatedProfile.location = locVal.formatted_address;
-      }
+    } else if (locVal.needs_clarification && (lastAssistantMessage.toLowerCase().includes('city') || lastAssistantMessage.toLowerCase().includes('locality') || lastAssistantMessage.toLowerCase().includes('located'))) {
+      locationClarificationMsg = locVal.clarification_question || null;
     }
   }
 
@@ -663,7 +704,9 @@ export async function manageConversationTurn(
   } else {
     nextAction = 'collect_information';
     if (!assistantResponse) {
-      if (missingState.missing.includes('name')) {
+      if (locationClarificationMsg) {
+        assistantResponse = locationClarificationMsg;
+      } else if (missingState.missing.includes('name')) {
         assistantResponse = "Welcome to SilverHands! What is your name?";
       } else if (missingState.missing.includes('skills')) {
         assistantResponse = `Nice to meet you, ${updatedProfile.name}! What skills, crafts, or work do you offer?`;
@@ -671,7 +714,7 @@ export async function manageConversationTurn(
         // Targeted skill-specific experience inquiry
         assistantResponse = `How many years of experience do you have in ${missingState.skillNeedingExperience.name}?`;
       } else if (missingState.missing.includes('location')) {
-        assistantResponse = `Great. Which city or locality in India do you live or work in?`;
+        assistantResponse = `Which city or locality in India do you live or work in?`;
       }
     }
   }

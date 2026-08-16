@@ -62,12 +62,13 @@ export function normalizeName(rawSpeech: string): { name: string | null; confide
     .replace(/\s+(here|speaking|this\s+side)$/i, '')
     .trim();
 
-  // Non-name action verbs, craft words, and conversational fillers
+  // Non-name action verbs, craft words, sport terms, and conversational fillers
   const NON_NAME_TOKENS = new Set([
     'like', 'likes', 'love', 'loves', 'do', 'doing', 'does', 'know', 'knows', 'good', 'great',
     'cook', 'cooking', 'clean', 'cleaning', 'tailor', 'tailoring', 'stitch', 'stitching',
     'pottery', 'clay', 'teach', 'teaching', 'paint', 'painting', 'knit', 'knitting',
     'embroidery', 'crochet', 'music', 'singing', 'math', 'mathematics',
+    'badminton', 'cricket', 'tennis', 'chess', 'yoga', 'back', 'middle', 'front', 'side', 'shuttle',
     'years', 'year', 'yrs', 'yr', 'months', 'days', 'zero', 'one', 'two', 'three', 'four', 'five',
     'live', 'living', 'stay', 'staying', 'work', 'working', 'services', 'service',
     'yes', 'no', 'yeah', 'yep', 'nope', 'correct', 'true', 'false', 'actually', 'instead',
@@ -94,8 +95,11 @@ export function normalizeName(rawSpeech: string): { name: string | null; confide
   return { name: titleCased, confidence: 0.95 };
 }
 
+import { resolveCanonicalSkill, isValidSkillEntity } from './skill-validator';
+
 /**
  * Generic semantic extraction and normalization for a single skill entity
+ * Utilizing authoritative canonical registry and phonetic ASR correction.
  */
 export function normalizeSkill(rawSpeech: string): {
   normalized: string | null;
@@ -107,175 +111,11 @@ export function normalizeSkill(rawSpeech: string): {
     return { normalized: null, confidence: 0, needs_clarification: true };
   }
 
-  let text = rawSpeech
-    .toLowerCase()
-    .replace(/^(uh|um|well|actually|basically|so|like|yeah)\s+/gi, '')
-    .trim();
-
-  // Strip conversational self-declarations
-  text = text
-    .replace(/^i'?ve\s+been\s+doing\s+/i, '')
-    .replace(/^i'?ve\s+been\s+/i, '')
-    .replace(/^i\s+have\s+been\s+doing\s+/i, '')
-    .replace(/^i\s+have\s+been\s+/i, '')
-    .replace(/^i'?m\s+good\s+at\s+playing\s+/i, '')
-    .replace(/^i'?m\s+good\s+at\s+doing\s+/i, '')
-    .replace(/^i'?m\s+good\s+at\s+making\s+/i, '')
-    .replace(/^i'?m\s+good\s+at\s+teaching\s+/i, '')
-    .replace(/^i'?m\s+good\s+at\s+/i, '')
-    .replace(/^i\s+am\s+good\s+at\s+playing\s+/i, '')
-    .replace(/^i\s+am\s+good\s+at\s+/i, '')
-    .replace(/^i\s+know\s+how\s+to\s+play\s+/i, '')
-    .replace(/^i\s+know\s+how\s+to\s+make\s+/i, '')
-    .replace(/^i\s+know\s+how\s+to\s+cook\s+/i, 'cooking ')
-    .replace(/^i\s+know\s+how\s+to\s+/i, '')
-    .replace(/^i\s+know\s+/i, '')
-    .replace(/^i\s+like\s+to\s+play\s+/i, '')
-    .replace(/^i\s+like\s+to\s+make\s+/i, '')
-    .replace(/^i\s+like\s+to\s+/i, '')
-    .replace(/^i\s+love\s+to\s+/i, '')
-    .replace(/^my\s+skill\s+is\s+/i, '')
-    .replace(/^my\s+craft\s+is\s+/i, '')
-    .replace(/^my\s+work\s+is\s+/i, '')
-    .replace(/^my\s+offering\s+is\s+/i, '')
-    .replace(/^i\s+do\s+/i, '')
-    .replace(/^i\s+make\s+/i, '')
-    .replace(/^i\s+cook\s+/i, 'cooking ')
-    .replace(/^i\s+teach\s+/i, 'teaching ')
-    .replace(/^i\s+specialize\s+in\s+/i, '')
-    .replace(/^i\s+have\s+expertise\s+in\s+/i, '')
-    .replace(/^i\s+practice\s+/i, '')
-    .replace(/^playing\s+/i, '')
-    .replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  // 1. Phonetic & common Indian ASR transcription error mappings
-  const phoneticBadminton = [
-    'badminton', 'bad minten', 'bad mitten', 'black mitten', 'blackmitten',
-    'batminton', 'badmitten', 'shuttle', 'shuttlecock', 'shuttle cock', 'badmiton', 'shuttle player'
-  ];
-  if (phoneticBadminton.some(term => text.includes(term))) {
-    return { normalized: 'Badminton', confidence: 0.98, needs_clarification: false };
-  }
-
-  const phoneticCricket = ['cricket', 'cricketer', 'batting', 'bowling coaching', 'cricket coaching'];
-  if (phoneticCricket.some(term => text.includes(term))) {
-    return { normalized: 'Cricket Coaching', confidence: 0.95, needs_clarification: false };
-  }
-
-  const phoneticTennis = ['tennis', 'lawn tennis', 'table tennis'];
-  if (phoneticTennis.some(term => text.includes(term))) {
-    return { normalized: text.includes('table') ? 'Table Tennis' : 'Tennis', confidence: 0.95, needs_clarification: false };
-  }
-
-  const phoneticChess = ['chess', 'chess coaching', 'ches coaching', 'chess teacher'];
-  if (phoneticChess.some(term => text.includes(term))) {
-    return { normalized: 'Chess Coaching', confidence: 0.95, needs_clarification: false };
-  }
-
-  if (text.includes('tailor') || text.includes('taylor') || text.includes('stitch') || text.includes('blouse') || text.includes('sewing') || text.includes('embroidery')) {
-    if (text.includes('blouse')) return { normalized: 'Tailoring / Blouse Stitching', confidence: 0.97, needs_clarification: false };
-    if (text.includes('embroidery')) return { normalized: 'Embroidery & Handcraft', confidence: 0.97, needs_clarification: false };
-    return { normalized: 'Tailoring & Stitching', confidence: 0.96, needs_clarification: false };
-  }
-  if (text.includes('jewel') || text.includes('jewellery') || text.includes('jewelry') || text.includes('beads')) {
-    return { normalized: 'Jewellery Making', confidence: 0.97, needs_clarification: false };
-  }
-  if (text.includes('pottery') || text.includes('potery') || text.includes('clay')) {
-    return { normalized: 'Pottery', confidence: 0.97, needs_clarification: false };
-  }
-  if (text.includes('paint') || text.includes('art') || text.includes('drawing') || text.includes('sketch')) {
-    return { normalized: 'Painting & Fine Arts', confidence: 0.96, needs_clarification: false };
-  }
-  if (text.includes('south indian food') || text.includes('south indian cooking') || text.includes('sambar') || text.includes('dosa') || text.includes('idli')) {
-    return { normalized: 'South Indian Cooking', confidence: 0.97, needs_clarification: false };
-  }
-  if (text.includes('clean') || text.includes('cleaning') || text.includes('housekeeping') || text.includes('maid') || text.includes('sweeping')) {
-    return { normalized: 'Cleaning & Housekeeping', confidence: 0.95, needs_clarification: false };
-  }
-  if (text.includes('traditional cooking') || text.includes('cooking') || text.includes('recipe') || text.includes('culinary') || text.includes('bake') || text.includes('baking')) {
-    return { normalized: 'Traditional Cooking', confidence: 0.95, needs_clarification: false };
-  }
-  if (text.includes('math') || text.includes('mathematics')) {
-    return { normalized: 'Mathematics Teaching', confidence: 0.96, needs_clarification: false };
-  }
-  if (text.includes('english')) {
-    return { normalized: 'English Teaching', confidence: 0.96, needs_clarification: false };
-  }
-  if (text.includes('science') || text.includes('physics') || text.includes('chemistry') || text.includes('biology')) {
-    return { normalized: 'Science Tutoring', confidence: 0.95, needs_clarification: false };
-  }
-  if (text.includes('coach') || text.includes('coaching') || text.includes('children')) {
-    return { normalized: 'Sports Coaching', confidence: 0.95, needs_clarification: false };
-  }
-  if (text.includes('yoga') || text.includes('pranayama') || text.includes('meditation')) {
-    return { normalized: 'Yoga & Meditation', confidence: 0.97, needs_clarification: false };
-  }
-  if (text.includes('music') || text.includes('singing') || text.includes('carnatic') || text.includes('hindustani') || text.includes('vocal')) {
-    if (text.includes('carnatic')) return { normalized: 'Carnatic Vocal Music', confidence: 0.97, needs_clarification: false };
-    return { normalized: 'Music & Vocal Training', confidence: 0.95, needs_clarification: false };
-  }
-  if (text.includes('gardening') || text.includes('bonsai') || text.includes('plants') || text.includes('organic farming') || text.includes('watering')) {
-    return { normalized: 'Gardening & Plant Care', confidence: 0.96, needs_clarification: false };
-  }
-  if (text.includes('knit') || text.includes('crochet') || text.includes('wool') || text.includes('sweater')) {
-    return { normalized: 'Wool Knitting & Crochet', confidence: 0.96, needs_clarification: false };
-  }
-  if (text.includes('astrology') || text.includes('horoscope') || text.includes('jyotish')) {
-    return { normalized: 'Vedic Astrology', confidence: 0.96, needs_clarification: false };
-  }
-
-  // Ambiguity check: if user said something very generic like "I work with clothes"
-  if (text === 'clothes' || text === 'making things' || text === 'hand work' || text === 'crafts') {
+  const res = resolveCanonicalSkill(rawSpeech);
+  if (res.isValid && res.normalized) {
     return {
-      normalized: 'Handcrafts',
-      confidence: 0.6,
-      needs_clarification: true,
-      clarification_question: `Do you want to list ${text === 'clothes' ? 'Tailoring & Stitching' : 'Handicrafts'} as your primary skill?`
-    };
-  }
-
-  // Reject conversational self-intros, fillers, numbers, experience phrases, and location clauses
-  const fillerWords = ['actually', 'basically', 'well', 'also', 'so', 'yes', 'no', 'yeah', 'hello', 'hi', 'hey', 'okay', 'ok', 'right', 'sure', 'fine'];
-  if (
-    fillerWords.includes(text) ||
-    text.includes('experience') ||
-    text.includes('year') ||
-    text.includes('years') ||
-    text.includes('doing this') ||
-    text.includes('have been') ||
-    text.includes('i have of') ||
-    text.includes('like to do') ||
-    text.includes('like to') ||
-    text.match(/^\d+\s*(?:years?|yrs?|yr)?$/i) ||
-    text.match(/^(?:about|around|for|with)?\s*\d+\s*(?:years?|yrs?)?$/i) ||
-    text.match(/^(?:about|around|for|with)?\s*(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty)\s*(?:years?|yrs?)?$/i) ||
-    text.match(/^\d+$/) ||
-    text.includes('from ') ||
-    text.includes('living in') ||
-    text.includes('live in') ||
-    text.startsWith('my name is') ||
-    text.match(/^i'?m\s+[a-z]+$/i) ||
-    text.match(/^i\s+am\s+[a-z]+$/i) ||
-    text === 'yes' ||
-    text === 'no' ||
-    text.includes('correct')
-  ) {
-    return { normalized: null, confidence: 0, needs_clarification: true };
-  }
-
-  // Generic fallback: title-case the cleaned skill string (must be at least 3 chars and not a pronoun/location)
-  if (text.length >= 3) {
-    const formatted = text
-      .split(' ')
-      .filter(w => w.length > 0)
-      .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-      .join(' ');
-
-    return {
-      normalized: formatted,
-      confidence: 0.88,
+      normalized: res.normalized,
+      confidence: res.confidence,
       needs_clarification: false
     };
   }
@@ -284,19 +124,12 @@ export function normalizeSkill(rawSpeech: string): {
     normalized: null,
     confidence: 0,
     needs_clarification: true,
-    clarification_question: 'Could you please describe your primary skill or craft in a few words?'
+    clarification_question: 'Could you please describe your primary skill, craft, or teaching subject in a few words?'
   };
 }
 
 /**
  * Extracts multiple distinct skills and any inline experience numbers provided in natural speech.
- * Example inputs:
- * - "I do tailoring and I also teach mathematics"
- *   -> [{ name: "Tailoring & Stitching", experience_years: null }, { name: "Mathematics Teaching", experience_years: null }]
- * - "I've been doing tailoring for 10 years and teaching maths for 4 years"
- *   -> [{ name: "Tailoring & Stitching", experience_years: 10 }, { name: "Mathematics Teaching", experience_years: 4 }]
- * - "I mainly do tailoring, but I also do embroidery"
- *   -> [{ name: "Tailoring & Stitching", type: "primary", experience_years: null }, { name: "Embroidery & Handcraft", type: "additional", experience_years: null }]
  */
 export function normalizeSkillsList(rawSpeech: string): ProfileSkill[] {
   if (!rawSpeech || !rawSpeech.trim()) return [];
@@ -324,8 +157,8 @@ export function normalizeSkillsList(rawSpeech: string): ProfileSkill[] {
     if (chunk.match(/\b(just\s+started|beginner|fresh|started\s+recently|learning\s+now|start)\b/i)) {
       chunkExperience = 0;
     } else {
-      const expMatch = chunk.match(/\b(?:for|with|about|around|approx)?\s*(\d+)\s*(?:years?|yrs?)?\b/i);
-      if (expMatch && chunk.match(/\b(?:years?|yrs?|for\s+\d+|with\s+\d+|about\s+\d+|around\s+\d+)\b/i)) {
+      const expMatch = chunk.match(/\b(?:for|with|about|around|approx|maybe)?\s*(\d+)\s*(?:years?|yrs?)?\b/i);
+      if (expMatch) {
         const parsed = parseInt(expMatch[1], 10);
         if (!isNaN(parsed) && parsed >= 0 && parsed <= 80) {
           chunkExperience = parsed;
@@ -333,7 +166,7 @@ export function normalizeSkillsList(rawSpeech: string): ProfileSkill[] {
       } else {
         // Check for number words in chunk (e.g. "for six years" or "for six")
         for (const [word, num] of Object.entries(NUMBER_WORDS)) {
-          if (new RegExp(`\\b(?:for|with|about|around)?\\s*${word}\\s*(?:years?|yrs?)?\\b`, 'i').test(chunk) && chunk.match(/\b(?:years?|for\s+[a-z]+|about\s+[a-z]+)\b/i)) {
+          if (new RegExp(`\\b(?:for|with|about|around|maybe)?\\s*${word}\\s*(?:years?|yrs?)?\\b`, 'i').test(chunk)) {
             chunkExperience = num;
             break;
           }
@@ -343,11 +176,11 @@ export function normalizeSkillsList(rawSpeech: string): ProfileSkill[] {
 
     // Clean chunk text from experience phrases to isolate the skill name
     const skillNameText = chunk
-      .replace(/\b(?:for|with|about|around|approx|doing\s+this\s+for)?\s*(?:about|around)?\s*\d+\s*(?:years?|yrs?)?\b/gi, '')
-      .replace(/\b(?:for|with|about|around)?\s*(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty)\s*(?:years?|yrs?)?\b/gi, '')
+      .replace(/\b(?:for|with|about|around|approx|maybe|doing\s+this\s+for)?\s*(?:about|around|maybe)?\s*\d+\s*(?:years?|yrs?)?\b/gi, '')
+      .replace(/\b(?:for|with|about|around|maybe)?\s*(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty)\s*(?:years?|yrs?)?\b/gi, '')
       .replace(/\b(just\s+started|started\s+recently|beginner)\b/gi, '')
-      .replace(/^(i\s+mainly\s+do|i\s+mainly|i\s+also\s+do|i\s+also|i\s+know|i\s+teach|i\s+do|and\s+i|but\s+i)\s+/gi, '')
-      .replace(/\s+(for|about|around|with)$/i, '')
+      .replace(/^(?:i\s+mainly\s+do|i\s+mainly|i\s+also\s+teach|i\s+also\s+do|i\s+also\s+know|i\s+also|i\s+teach|i\s+know|i\s+do|and\s+i|but\s+i)\s+/gi, '')
+      .replace(/\s+(for|about|around|with|maybe)$/i, '')
       .trim();
 
     const normalized = normalizeSkill(skillNameText);
