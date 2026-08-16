@@ -98,6 +98,7 @@ export default function CreateVideoPage() {
   const fileInputRef  = useRef<HTMLInputElement>(null);
   const pollRef       = useRef<any>(null);
   const isRestoringRef = useRef(true);
+  const saveInProgressRef = useRef(false);
 
   useEffect(() => { recordStateRef.current = recordState; }, [recordState]);
 
@@ -483,7 +484,8 @@ export default function CreateVideoPage() {
   // ─── Save generated clip to DB ────────────────────────────────────────────
   const handleSave = async () => {
     const clip = clips[activeClip];
-    if (!clip) return;
+    if (!clip || saveInProgressRef.current) return;
+    saveInProgressRef.current = true;
     setIsSaving(true);
     try {
       const profile = getSavedProfile();
@@ -552,6 +554,7 @@ export default function CreateVideoPage() {
       setSaved(true);
     } catch { /* silent */ }
     setIsSaving(false);
+    saveInProgressRef.current = false;
   };
 
   // ─────────────────────────────────────────────────────────────────────────
