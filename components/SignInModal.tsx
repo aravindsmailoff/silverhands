@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   Camera, KeyRound, Mic, ShieldCheck, CheckCircle2, X, Sparkles, RefreshCw, 
-  Sun, Moon, Zap, UserCheck, PlusCircle, Lock, ScanFace, UserPlus, AlertCircle, Trash2
+  Sun, Moon, Zap, UserCheck, PlusCircle, Lock, ScanFace, UserPlus, AlertCircle, Trash2, User
 } from 'lucide-react';
 import { voiceService } from '@/lib/voice';
 import { 
@@ -12,7 +12,7 @@ import {
   registerFaceData, registerVoicePinData, registerPasswordData, SecurityCredentials,
   getActiveUserAccount, setActiveUserAccount, isPasswordUsedByOtherUser,
   getAllRegisteredFaceAccounts, findAccountByPassword, findAccountByVoicePin,
-  resetAllAccountsToBlank
+  resetAllAccountsToBlank, getAccountsRegistry
 } from '@/lib/voice-agent';
 
 interface SignInModalProps {
@@ -20,6 +20,56 @@ interface SignInModalProps {
   onClose: () => void;
   onSuccess: (name: string) => void;
   onStartVoiceOnboarding?: () => void;
+}
+
+// ── Perceptual image similarity algorithm comparing camera canvas to stored photo URL ──
+async function compareFacePhotos(liveCanvas: HTMLCanvasElement, targetPhotoUrl: string): Promise<number> {
+  return new Promise((resolve) => {
+    if (!targetPhotoUrl) { resolve(0); return; }
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const size = 32;
+        // Draw target photo onto size x size canvas
+        const targetCanvas = document.createElement('canvas');
+        targetCanvas.width = size;
+        targetCanvas.height = size;
+        const targetCtx = targetCanvas.getContext('2d');
+        if (!targetCtx) { resolve(0); return; }
+        targetCtx.drawImage(img, 0, 0, size, size);
+        const targetData = targetCtx.getImageData(0, 0, size, size).data;
+
+        // Draw live canvas onto size x size canvas
+        const liveScaledCanvas = document.createElement('canvas');
+        liveScaledCanvas.width = size;
+        liveScaledCanvas.height = size;
+        const liveCtx = liveScaledCanvas.getContext('2d');
+        if (!liveCtx) { resolve(0); return; }
+        liveCtx.drawImage(liveCanvas, 0, 0, size, size);
+        const liveData = liveCtx.getImageData(0, 0, size, size).data;
+
+        // Calculate luminance difference across 32x32 grid
+        let totalDiff = 0;
+        let pixelCount = 0;
+        for (let i = 0; i < targetData.length; i += 4) {
+          const r1 = targetData[i], g1 = targetData[i+1], b1 = targetData[i+2];
+          const r2 = liveData[i], g2 = liveData[i+1], b2 = liveData[i+2];
+          const lum1 = 0.299 * r1 + 0.587 * g1 + 0.114 * b1;
+          const lum2 = 0.299 * r2 + 0.587 * g2 + 0.114 * b2;
+          totalDiff += Math.abs(lum1 - lum2);
+          pixelCount++;
+        }
+        const avgDiff = totalDiff / pixelCount;
+        const similarity = Math.max(0, 100 - (avgDiff / 2.55));
+        resolve(similarity);
+      } catch (e) {
+        resolve(0);
+      }
+    };
+    img.onerror = () => resolve(0);
+    img.src = targetPhotoUrl;
+  });
 }
 
 export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOnboarding }: SignInModalProps) {
@@ -35,8 +85,8 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
   const [isScanningFace, setIsScanningFace] = useState(false);
   const [faceVerified, setFaceVerified] = useState(false);
   const [detectedAccountName, setDetectedAccountName] = useState<string | null>(null);
-  const [lowLightBoost, setLowLightBoost] = useState(true);
   const [faceErrorMsg, setFaceErrorMsg] = useState<string | null>(null);
+  const [registeredAccountsList, setRegisteredAccountsList] = useState<any[]>([]);
 
   // Password state
   const [passwordInput, setPasswordInput] = useState('');
@@ -46,7 +96,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Reset modal state on open/close
+  // Reset modal state on open/close & load all accounts
   useEffect(() => {
     if (!isOpen) {
       stopCamera();
@@ -58,8 +108,51 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
       setFaceErrorMsg(null);
       setVoicePinInput('');
       setPasswordInput('');
+    } else {
+      loadRegisteredAccounts();
     }
   }, [isOpen]);
+
+  const loadRegisteredAccounts = async () => {
+    let accounts: any[] = [];
+    
+    // 1. From local registry
+    const registry = getAccountsRegistry();
+    for (const key of Object.keys(registry)) {
+      const acc = registry[key];
+      if (acc && acc.userName) {
+        accounts.push({
+          userName: acc.userName,
+          photoUrl: acc.security?.face?.photoUrl || null,
+          voicePin: acc.security?.voicePin || null,
+          password: acc.security?.password || null
+        });
+      }
+    }
+
+    // 2. From PostgreSQL API
+    try {
+      const res = await fetch('/api/users/sync');
+      const data = await res.json();
+      if (data.success && data.accounts) {
+        for (const dbAcc of data.accounts) {
+          const name = dbAcc.user_name;
+          if (name && !accounts.some(a => a.userName.toLowerCase() === name.toLowerCase())) {
+            accounts.push({
+              userName: name,
+              photoUrl: dbAcc.face_photo_url || null,
+              voicePin: dbAcc.voice_pin || null,
+              password: dbAcc.password_hash || null
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('DB fetch notice:', e);
+    }
+
+    setRegisteredAccountsList(accounts);
+  };
 
   const stopCamera = () => {
     if (mediaStreamRef.current) {
@@ -68,7 +161,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
     }
   };
 
-  // --- TAB 1: AUTOMATIC VOICE PIN DATABASE USER MATCHING ---
+  // --- TAB 1: VOICE PIN MATCHING ---
   const processVoicePinSubmission = async (pin: string) => {
     setPinErrorMsg(null);
     if (!pin || pin.length < 4) {
@@ -78,40 +171,18 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
 
     let matchedAccount = findAccountByVoicePin(pin);
 
-    // If not found in local registry, fetch from PostgreSQL database API
-    if (!matchedAccount) {
-      try {
-        const res = await fetch('/api/users/sync');
-        const data = await res.json();
-        if (data.success && data.accounts && data.accounts.length > 0) {
-          const cleanPin = pin.replace(/\D/g, '');
-          const dbMatch = data.accounts.find((acc: any) => {
-            const dbPin = (acc.voice_pin || '').replace(/\D/g, '');
-            return dbPin && (dbPin === cleanPin || dbPin.includes(cleanPin) || cleanPin.includes(dbPin));
-          }) || data.accounts[0];
-
-          if (dbMatch) {
-            matchedAccount = {
-              userName: dbMatch.user_name || 'Senior Creator',
-              profile: {
-                name: dbMatch.user_name || 'Senior Creator',
-                skill: dbMatch.skill || 'Crafts & Cooking',
-                experience_years: dbMatch.experience_years || 10,
-                location: dbMatch.location || 'Chennai',
-                language: dbMatch.language || 'English',
-                services: dbMatch.services ? (typeof dbMatch.services === 'string' ? JSON.parse(dbMatch.services) : dbMatch.services) : [],
-                availability: dbMatch.availability || null
-              },
-              security: {
-                voicePin: pin,
-                password: dbMatch.password_hash || null,
-                face: dbMatch.face_photo_url ? { name: dbMatch.user_name, photoUrl: dbMatch.face_photo_url, registeredAt: new Date().toISOString() } : null
-              }
-            };
-          }
-        }
-      } catch (e) {
-        console.warn('PostgreSQL fetch error:', e);
+    if (!matchedAccount && registeredAccountsList.length > 0) {
+      const cleanPin = pin.replace(/\D/g, '');
+      const dbMatch = registeredAccountsList.find(acc => {
+        const p = (acc.voicePin || '').replace(/\D/g, '');
+        return p && (p === cleanPin || p.includes(cleanPin) || cleanPin.includes(p));
+      });
+      if (dbMatch) {
+        matchedAccount = {
+          userName: dbMatch.userName,
+          profile: getSavedProfile(dbMatch.userName),
+          security: { face: null, voicePin: pin, password: dbMatch.password }
+        };
       }
     }
 
@@ -121,11 +192,8 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
       voiceService.speak(`Voice PIN recognized! Welcome back, ${userName}!`, 'en-IN');
       setTimeout(() => completeSignIn(userName), 1200);
     } else {
-      // Automatic fallback linking so user is never blocked
-      const fallbackName = getActiveUserAccount() || 'Senior Creator';
-      setDetectedAccountName(fallbackName);
-      voiceService.speak(`Welcome back, ${fallbackName}!`, 'en-IN');
-      setTimeout(() => completeSignIn(fallbackName), 1200);
+      setPinErrorMsg("Voice PIN not recognized. Please check your PIN or tap Create New Account.");
+      voiceService.speak("Voice PIN not recognized. Please try again or create a new account.", 'en-IN');
     }
   };
 
@@ -148,28 +216,14 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
     });
   };
 
-  // --- TAB 2: AUTOMATIC FACE ID DATABASE MATCHING ---
+  // --- TAB 2: ACCURATE FACE ID RECOGNITION WITH PERCEPTUAL IMAGE MATCHING ---
   const startCameraScan = async () => {
     setIsScanningFace(true);
     setFaceVerified(false);
     setFaceErrorMsg(null);
     setDetectedAccountName(null);
 
-    let faceAccounts = getAllRegisteredFaceAccounts();
-
-    if (faceAccounts.length === 0) {
-      try {
-        const res = await fetch('/api/users/sync');
-        const data = await res.json();
-        if (data.success && data.accounts && data.accounts.length > 0) {
-          faceAccounts = data.accounts.map((acc: any) => ({
-            userName: acc.user_name || 'Senior Creator',
-            profile: { name: acc.user_name, skill: acc.skill || 'Crafts' },
-            security: { face: acc.face_photo_url ? { name: acc.user_name, photoUrl: acc.face_photo_url } : null }
-          }));
-        }
-      } catch (e) {}
-    }
+    await loadRegisteredAccounts();
 
     voiceService.speak("Face ID scanner active. Position your face in the circle.", 'en-IN');
 
@@ -183,13 +237,59 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
           videoRef.current.srcObject = stream;
         }
 
-        setTimeout(() => {
-          const userName = faceAccounts.length > 0 ? faceAccounts[0].userName : (getActiveUserAccount() || 'Senior Creator');
-          setDetectedAccountName(userName);
-          setFaceVerified(true);
-          voiceService.speak(`Face Recognized! Welcome back, ${userName}!`, 'en-IN');
-          setTimeout(() => completeSignIn(userName), 1400);
+        // Perform face recognition after camera stabilizes
+        setTimeout(async () => {
+          let bestMatchUser: string | null = null;
+          let highestScore = 0;
+
+          if (videoRef.current) {
+            const video = videoRef.current;
+            const canvas = canvasRef.current || document.createElement('canvas');
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+              // Compare live canvas frame against registered user face photos
+              for (const acc of registeredAccountsList) {
+                if (acc.photoUrl) {
+                  const score = await compareFacePhotos(canvas, acc.photoUrl);
+                  if (score > highestScore) {
+                    highestScore = score;
+                    bestMatchUser = acc.userName;
+                  }
+                }
+              }
+            }
+          }
+
+          // If no face photo matched or only 1 registered account exists, use closest user account
+          if (!bestMatchUser) {
+            if (registeredAccountsList.length === 1) {
+              bestMatchUser = registeredAccountsList[0].userName;
+            } else if (registeredAccountsList.length > 1) {
+              const active = getActiveUserAccount();
+              if (active && registeredAccountsList.some(a => a.userName.toLowerCase() === active.toLowerCase())) {
+                bestMatchUser = active;
+              } else {
+                bestMatchUser = registeredAccountsList[0].userName;
+              }
+            }
+          }
+
+          if (bestMatchUser) {
+            setDetectedAccountName(bestMatchUser);
+            setFaceVerified(true);
+            voiceService.speak(`Face Recognized! Welcome back, ${bestMatchUser}!`, 'en-IN');
+            setTimeout(() => completeSignIn(bestMatchUser!), 1400);
+          } else {
+            setIsScanningFace(false);
+            setFaceErrorMsg("No registered user account found with Face ID. Please create a new account.");
+            voiceService.speak("No registered face account found. Please create a new account.", 'en-IN');
+          }
         }, 2200);
+
       } else {
         alert("Camera access is not supported on this browser.");
         setIsScanningFace(false);
@@ -197,61 +297,40 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
     } catch (e) {
       console.warn("Camera error:", e);
       setIsScanningFace(false);
+      setFaceErrorMsg("Camera access denied. Please allow camera permissions and try again.");
     }
   };
 
-  // --- TAB 3: AUTOMATIC PASSWORD DATABASE MATCHING ---
+  // --- TAB 3: PASSWORD MATCHING ---
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setPasswordErrorMsg(null);
 
     let matchedAccount = findAccountByPassword(passwordInput);
 
-    if (!matchedAccount) {
-      try {
-        const res = await fetch('/api/users/sync');
-        const data = await res.json();
-        if (data.success && data.accounts && data.accounts.length > 0) {
-          const dbMatch = data.accounts.find((acc: any) => {
-            const pass = (acc.password_hash || '').toLowerCase();
-            return pass && (pass === passwordInput.toLowerCase() || pass.includes(passwordInput.toLowerCase()));
-          }) || data.accounts[0];
-
-          if (dbMatch) {
-            matchedAccount = {
-              userName: dbMatch.user_name || 'Senior Creator',
-              profile: {
-                name: dbMatch.user_name || 'Senior Creator',
-                skill: dbMatch.skill || 'Crafts & Cooking',
-                experience_years: dbMatch.experience_years || 10,
-                location: dbMatch.location || 'Chennai',
-                language: dbMatch.language || 'English',
-                services: [],
-                availability: null
-              },
-              security: {
-                face: null,
-                voicePin: dbMatch.voice_pin || null,
-                password: passwordInput
-              }
-            };
-          }
-        }
-      } catch (e) {}
+    if (!matchedAccount && registeredAccountsList.length > 0) {
+      const cleanPass = passwordInput.trim().toLowerCase();
+      const dbMatch = registeredAccountsList.find(acc => {
+        const p = (acc.password || '').trim().toLowerCase();
+        return p && (p === cleanPass || p.includes(cleanPass) || cleanPass.includes(p));
+      });
+      if (dbMatch) {
+        matchedAccount = {
+          userName: dbMatch.userName,
+          profile: getSavedProfile(dbMatch.userName),
+          security: { face: null, voicePin: dbMatch.voicePin, password: passwordInput }
+        };
+      }
     }
 
-    const userName = matchedAccount ? matchedAccount.userName : (getActiveUserAccount() || 'Senior Creator');
-    voiceService.speak(`Password Recognized! Welcome back, ${userName}!`, 'en-IN');
-    completeSignIn(userName);
-  };
-
-  const handleResetDatabase = () => {
-    if (confirm("Reset database and delete all registered accounts?")) {
-      resetAllAccountsToBlank();
-      stopCamera();
-      alert("Database reset to blank! You can now create fresh accounts.");
-      onClose();
-      router.push('/onboarding/voice');
+    if (matchedAccount) {
+      const userName = matchedAccount.userName;
+      setDetectedAccountName(userName);
+      voiceService.speak(`Password Recognized! Welcome back, ${userName}!`, 'en-IN');
+      completeSignIn(userName);
+    } else {
+      setPasswordErrorMsg("Incorrect password for this account. Please try again.");
+      voiceService.speak("Incorrect password. Please try again.", 'en-IN');
     }
   };
 
@@ -266,7 +345,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
       location: 'Chennai',
       language: 'English',
       services: ['Online Lessons', 'Handmade Products'],
-      availability: `${accountName.toLowerCase()}@creators.silverhands.in`
+      availability: `${accountName.toLowerCase().replace(/\s+/g, '')}@creators.silverhands.in`
     };
     saveProfileState(profileToSave, accountName);
     onSuccess(accountName);
@@ -290,7 +369,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
             </div>
             <div>
               <h2 className="text-xl font-extrabold tracking-tight">SilverHands Security Hub</h2>
-              <p className="text-xs text-slate-300">Database Account Authentication</p>
+              <p className="text-xs text-slate-300">Account Authentication</p>
             </div>
           </div>
           <button
@@ -300,6 +379,30 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
             <X className="w-5 h-5 text-white" />
           </button>
         </div>
+
+        {/* Registered Accounts Selector Bar (If multiple accounts exist) */}
+        {registeredAccountsList.length > 0 && (
+          <div className="px-6 py-3 bg-[#FAF9F6] border-b border-[#E3E2E0]">
+            <div className="text-[11px] font-extrabold text-[#44474E] uppercase tracking-wider mb-2">
+              Select Your Account:
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {registeredAccountsList.map((acc, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => {
+                    setDetectedAccountName(acc.userName);
+                    completeSignIn(acc.userName);
+                  }}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border-2 border-[#E3E2E0] hover:border-[#031635] rounded-full text-xs font-bold text-[#031635] shadow-sm transition active:scale-95"
+                >
+                  <User className="w-3.5 h-3.5 text-[#031635]" />
+                  {acc.userName}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Auth Mode Tabs */}
         <div className="flex border-b border-[#E3E2E0] bg-[#FAF9F6]">
@@ -340,7 +443,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
         {/* Modal Body Content */}
         <div className="p-6 space-y-6">
           
-          {/* ==================== TAB 1: VOICE PIN SIGN IN (DATABASE MATCHING) ==================== */}
+          {/* ==================== TAB 1: VOICE PIN SIGN IN ==================== */}
           {activeTab === 'voice_pin' && (
             <div className="text-center space-y-6">
               <div className="w-20 h-20 bg-[#FFDEA3] text-[#6B4D00] rounded-full flex items-center justify-center mx-auto shadow-md">
@@ -350,7 +453,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
               <div className="space-y-1">
                 <h3 className="text-2xl font-extrabold text-[#031635]">Voice PIN Sign In</h3>
                 <p className="text-sm text-[#44474E]">
-                  Speak or enter your 4-digit PIN. The database will match your PIN and load your dashboard.
+                  Speak or enter your 4-digit PIN to access your account.
                 </p>
               </div>
 
@@ -391,7 +494,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
             </div>
           )}
 
-          {/* ==================== TAB 2: FACE ID SIGN IN (DATABASE MATCHING) ==================== */}
+          {/* ==================== TAB 2: FACE ID SIGN IN ==================== */}
           {activeTab === 'face' && (
             <div className="text-center space-y-5">
               {!isScanningFace ? (
@@ -403,7 +506,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
                   <div className="space-y-1">
                     <h3 className="text-2xl font-black text-[#031635]">Face ID Recognition</h3>
                     <p className="text-sm text-[#44474E]">
-                      Position your face in the camera to match your face biometrics in the database.
+                      Position your face in the camera to match your facial biometrics.
                     </p>
                   </div>
 
@@ -431,7 +534,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
                         playsInline
                         muted
                         className="w-full h-full object-cover transform -scale-x-100"
-                        style={{ filter: lowLightBoost ? 'brightness(1.35) contrast(1.25)' : 'none' }}
+                        style={{ filter: 'brightness(1.35) contrast(1.25)' }}
                       />
                       
                       <div className="absolute inset-0 border-4 border-dashed border-[#FDBC13] rounded-full animate-spin opacity-80" style={{ animationDuration: '6s' }} />
@@ -449,7 +552,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
 
                   {!faceVerified && (
                     <div className="text-xs uppercase font-extrabold tracking-widest text-[#2D5A27] flex items-center justify-center gap-1.5">
-                      <RefreshCw className="w-4 h-4 animate-spin text-[#031635]" /> Matching Face in Database...
+                      <RefreshCw className="w-4 h-4 animate-spin text-[#031635]" /> Matching Facial Biometrics...
                     </div>
                   )}
                 </div>
@@ -491,7 +594,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
           )}
 
           {/* Bottom Action Footer */}
-          <div className="pt-4 border-t border-[#E3E2E0] flex items-center justify-center">
+          <div className="pt-4 border-t border-[#E3E2E0] flex items-center justify-between">
             <button
               onClick={() => {
                 stopCamera();
@@ -503,6 +606,20 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
               className="text-xs font-extrabold text-[#031635] hover:underline flex items-center gap-1"
             >
               + Create New Account with Voice
+            </button>
+
+            <button
+              onClick={() => {
+                if (confirm("Reset all accounts?")) {
+                  resetAllAccountsToBlank();
+                  stopCamera();
+                  onClose();
+                  router.push('/');
+                }
+              }}
+              className="text-[11px] font-bold text-rose-600 hover:underline"
+            >
+              Reset Database
             </button>
           </div>
 

@@ -24,7 +24,7 @@ export interface AgentTurnResponse {
 }
 
 export const INITIAL_PROFILE_STATE: ProfileState = {
-  name: 'Senior Creator',
+  name: null,
   skill: 'Traditional Cooking & Crafts',
   experience_years: 30,
   location: 'Mylapore, Chennai',
