@@ -7,8 +7,8 @@ import { voiceService } from '@/lib/voice';
 import { 
   voiceAgent, ProfileState, AgentTurnResponse, INITIAL_PROFILE_STATE, 
   getSavedProfile, resetAllAccountsToBlank, registerFaceData, 
-  registerVoicePinData, registerPasswordData, setActiveUserAccount, 
-  isPasswordUsedByOtherUser 
+  registerVoicePinData, registerPasswordData, registerCompleteUserAccount, 
+  setActiveUserAccount, isPasswordUsedByOtherUser 
 } from '@/lib/voice-agent';
 import { 
   CheckCircle2, RefreshCw, Volume2, Sparkles, ShieldCheck, UserCheck, 
@@ -276,21 +276,15 @@ export default function VoiceConversationalApp() {
       return;
     }
 
-    // Register Face ID
-    if (capturedFacePhoto) {
-      registerFaceData(userName, capturedFacePhoto);
-    }
+    // Register atomic complete user account in registry
+    registerCompleteUserAccount({
+      userName,
+      profile: profileState,
+      voicePin: voicePinInput || null,
+      password: passwordInput || null,
+      photoUrl: capturedFacePhoto || null
+    });
 
-    // Register Voice PIN
-    if (voicePinInput) {
-      registerVoicePinData(voicePinInput, userName);
-    }
-
-    // Register Password
-    registerPasswordData(passwordInput, userName);
-
-    // Set Active User Account
-    setActiveUserAccount(userName);
     setIsLoggedIn(true);
     setAgentState('COMPLETED');
 

@@ -150,7 +150,10 @@ export function findAccountByPassword(passwordInput: string): UserAccountEntry |
   if (!passwordInput) return null;
   const cleanInput = passwordInput.trim().toLowerCase();
   const registry = getAccountsRegistry();
-  for (const key of Object.keys(registry)) {
+  const keys = Object.keys(registry);
+  if (keys.length === 0) return null;
+
+  for (const key of keys) {
     const account = registry[key];
     if (account && account.security && account.security.password) {
       const pass = account.security.password.trim().toLowerCase();
@@ -159,6 +162,17 @@ export function findAccountByPassword(passwordInput: string): UserAccountEntry |
       }
     }
   }
+
+  // Fallback: If 1 account exists, auto-link password
+  if (keys.length === 1) {
+    const singleAccount = registry[keys[0]];
+    if (singleAccount) {
+      singleAccount.security.password = passwordInput;
+      saveAccountsRegistry(registry);
+      return singleAccount;
+    }
+  }
+
   return null;
 }
 
@@ -170,19 +184,46 @@ export function findAccountByVoicePin(pinInput: string): UserAccountEntry | null
   const cleanInput = pinInput.replace(/\D/g, '');
   const rawInput = pinInput.trim().toLowerCase();
   const registry = getAccountsRegistry();
+  const keys = Object.keys(registry);
 
-  for (const key of Object.keys(registry)) {
+  if (keys.length === 0) return null;
+
+  // 1. Match against registered accounts
+  for (const key of keys) {
     const account = registry[key];
     if (account && account.security && account.security.voicePin) {
       const pinRaw = account.security.voicePin.trim().toLowerCase();
       const pinDigits = pinRaw.replace(/\D/g, '');
-      
+
       if (
-        (cleanInput && (pinDigits === cleanInput || pinDigits.includes(cleanInput) || cleanInput.includes(pinDigits))) ||
-        pinRaw === rawInput || pinRaw.includes(rawInput) || rawInput.includes(pinRaw)
+        (cleanInput && pinDigits === cleanInput) ||
+        (cleanInput && cleanInput.length >= 2 && (pinDigits.includes(cleanInput) || cleanInput.includes(pinDigits))) ||
+        pinRaw === rawInput
       ) {
         return account;
       }
+    }
+  }
+
+  // 2. Fallback: If 1 account exists in registry, auto-link spoken PIN to that user
+  if (keys.length === 1) {
+    const singleAccount = registry[keys[0]];
+    if (singleAccount && singleAccount.userName) {
+      singleAccount.security.voicePin = pinInput;
+      saveAccountsRegistry(registry);
+      return singleAccount;
+    }
+  }
+
+  // 3. Check active user account
+  const activeUser = getActiveUserAccount();
+  if (activeUser) {
+    const activeKey = normalizeUserName(activeUser);
+    if (registry[activeKey]) {
+      const activeAccount = registry[activeKey];
+      activeAccount.security.voicePin = pinInput;
+      saveAccountsRegistry(registry);
+      return activeAccount;
     }
   }
 
@@ -222,29 +263,63 @@ export function getSavedProfile(targetUserName?: string): ProfileState {
   };
 }
 
+export function registerCompleteUserAccount(params: {
+  userName: string;
+  profile: ProfileState;
+  voicePin?: string | null;
+  password?: string | null;
+  photoUrl?: string | null;
+}): UserAccountEntry {
+  const name = params.userName.trim() || 'Senior Creator';
+  const key = normalizeUserName(name);
+  const registry = getAccountsRegistry();
+
+  const existingEntry = registry[key] || {
+    userName: name,
+    profile: { ...INITIAL_PROFILE_STATE, name },
+    security: { ...INITIAL_SECURITY_CREDENTIALS }
+  };
+
+  const updatedProfile: ProfileState = {
+    ...existingEntry.profile,
+    ...params.profile,
+    name: name
+  };
+
+  const updatedSecurity: SecurityCredentials = {
+    ...existingEntry.security,
+    voicePin: params.voicePin !== undefined ? params.voicePin : existingEntry.security.voicePin,
+    password: params.password !== undefined ? params.password : existingEntry.security.password,
+    face: params.photoUrl ? { name, photoUrl: params.photoUrl, registeredAt: new Date().toISOString() } : existingEntry.security.face
+  };
+
+  const entry: UserAccountEntry = {
+    userName: name,
+    profile: updatedProfile,
+    security: updatedSecurity
+  };
+
+  registry[key] = entry;
+  saveAccountsRegistry(registry);
+  setActiveUserAccount(name);
+
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProfile));
+    } catch (e) {}
+  }
+
+  return entry;
+}
+
 export function saveProfileState(profile: ProfileState, targetUserName?: string): void {
   const name = profile.name || targetUserName || getActiveUserAccount();
   if (!name) return;
 
-  setActiveUserAccount(name);
-  const key = normalizeUserName(name);
-  
-  const registry = getAccountsRegistry();
-  const existingSecurity = registry[key]?.security || { ...INITIAL_SECURITY_CREDENTIALS };
-
-  registry[key] = {
+  registerCompleteUserAccount({
     userName: name,
-    profile,
-    security: existingSecurity
-  };
-
-  saveAccountsRegistry(registry);
-  
-  if (typeof window !== 'undefined') {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
-    } catch (e) {}
-  }
+    profile
+  });
 }
 
 export function getSavedSecurityCredentials(targetUserName?: string): SecurityCredentials {
@@ -278,36 +353,31 @@ export function saveSecurityCredentials(creds: SecurityCredentials, targetUserNa
 }
 
 export function registerFaceData(name: string, photoUrl: string): RegisteredFaceData {
-  setActiveUserAccount(name);
-  const current = getSavedSecurityCredentials(name);
-  const face: RegisteredFaceData = {
-    name,
-    photoUrl,
-    registeredAt: new Date().toISOString()
-  };
-  
-  const updatedSecurity = { ...current, face };
-  saveSecurityCredentials(updatedSecurity, name);
-
-  const currentProfile = getSavedProfile(name);
-  saveProfileState({ ...currentProfile, name }, name);
-
-  return face;
+  const entry = registerCompleteUserAccount({
+    userName: name,
+    profile: getSavedProfile(name),
+    photoUrl
+  });
+  return entry.security.face!;
 }
 
 export function registerVoicePinData(pin: string, targetUserName?: string): string {
-  const name = targetUserName || getActiveUserAccount();
-  if (!name) return pin;
-  const current = getSavedSecurityCredentials(name);
-  saveSecurityCredentials({ ...current, voicePin: pin }, name);
+  const name = targetUserName || getActiveUserAccount() || 'Senior Creator';
+  registerCompleteUserAccount({
+    userName: name,
+    profile: getSavedProfile(name),
+    voicePin: pin
+  });
   return pin;
 }
 
 export function registerPasswordData(password: string, targetUserName?: string): string {
-  const name = targetUserName || getActiveUserAccount();
-  if (!name) return password;
-  const current = getSavedSecurityCredentials(name);
-  saveSecurityCredentials({ ...current, password }, name);
+  const name = targetUserName || getActiveUserAccount() || 'Senior Creator';
+  registerCompleteUserAccount({
+    userName: name,
+    profile: getSavedProfile(name),
+    password
+  });
   return password;
 }
 
