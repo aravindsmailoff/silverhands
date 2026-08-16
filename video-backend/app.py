@@ -42,8 +42,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/videos", StaticFiles(directory=OUTPUT_DIR), name="videos")
 app.mount("/videos/videos", StaticFiles(directory=OUTPUT_DIR), name="videos_fallback")
+app.mount("/videos", StaticFiles(directory=OUTPUT_DIR), name="videos")
 app.mount("/sessions", StaticFiles(directory=SESSIONS_DIR), name="sessions")
 
 # In-memory queues and state
