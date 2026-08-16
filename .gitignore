@@ -43,6 +43,7 @@ yarn-error.log*
 next-env.d.ts
 
 # video-backend (Python FastAPI) — ignore runtime dirs, keep source
+video-backend/.env
 video-backend/uploads/
 video-backend/output/
 video-backend/sessions/
