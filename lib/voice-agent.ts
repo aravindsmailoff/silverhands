@@ -127,6 +127,51 @@ export function isPasswordUsedByOtherUser(userName: string, passwordInput: strin
   return false;
 }
 
+/**
+ * Automatically finds account matching an entered password
+ */
+export function findAccountByPassword(passwordInput: string): UserAccountEntry | null {
+  if (!passwordInput) return null;
+  const registry = getAccountsRegistry();
+  for (const key of Object.keys(registry)) {
+    const account = registry[key];
+    if (account && account.security && account.security.password === passwordInput) {
+      return account;
+    }
+  }
+  return null;
+}
+
+/**
+ * Automatically finds account matching a spoken Voice PIN
+ */
+export function findAccountByVoicePin(pinInput: string): UserAccountEntry | null {
+  if (!pinInput) return null;
+  const registry = getAccountsRegistry();
+  for (const key of Object.keys(registry)) {
+    const account = registry[key];
+    if (account && account.security && account.security.voicePin === pinInput) {
+      return account;
+    }
+  }
+  return null;
+}
+
+/**
+ * Returns all user accounts that have registered Face ID biometrics
+ */
+export function getAllRegisteredFaceAccounts(): UserAccountEntry[] {
+  const registry = getAccountsRegistry();
+  const list: UserAccountEntry[] = [];
+  for (const key of Object.keys(registry)) {
+    const account = registry[key];
+    if (account && account.security && account.security.face) {
+      list.push(account);
+    }
+  }
+  return list;
+}
+
 export function getSavedProfile(targetUserName?: string): ProfileState {
   const name = targetUserName || getActiveUserAccount();
   const key = normalizeUserName(name);

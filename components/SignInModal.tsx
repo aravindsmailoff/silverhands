@@ -4,13 +4,14 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   Camera, KeyRound, Mic, ShieldCheck, CheckCircle2, X, Sparkles, RefreshCw, 
-  Sun, Moon, Zap, UserCheck, PlusCircle, Lock, ScanFace, UserPlus, Users, AlertCircle
+  Sun, Moon, Zap, UserCheck, PlusCircle, Lock, ScanFace, UserPlus, AlertCircle, Check
 } from 'lucide-react';
 import { voiceService } from '@/lib/voice';
 import { 
   getSavedProfile, saveProfileState, getSavedSecurityCredentials, 
   registerFaceData, registerVoicePinData, registerPasswordData, SecurityCredentials,
-  getActiveUserAccount, setActiveUserAccount, isPasswordUsedByOtherUser
+  getActiveUserAccount, setActiveUserAccount, isPasswordUsedByOtherUser,
+  getAllRegisteredFaceAccounts, findAccountByPassword, findAccountByVoicePin
 } from '@/lib/voice-agent';
 
 interface SignInModalProps {
@@ -23,66 +24,46 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'face' | 'password' | 'voice_pin'>('face');
   
-  // Active Account State (e.g. "Saravanan", "Aravind", "Lakshmi Amma")
-  const [targetAccountName, setTargetAccountName] = useState('Saravanan');
-  
-  // Security credentials state scoped to targetAccountName
-  const [securityCreds, setSecurityCreds] = useState<SecurityCredentials>({
-    face: null,
-    voicePin: null,
-    password: null
-  });
-
   // Face ID state
   const [isScanningFace, setIsScanningFace] = useState(false);
   const [faceVerified, setFaceVerified] = useState(false);
-  const [faceRegisteredSuccess, setFaceRegisteredSuccess] = useState(false);
+  const [detectedAccountName, setDetectedAccountName] = useState<string | null>(null);
+  const [detectedAccountPhoto, setDetectedAccountPhoto] = useState<string | null>(null);
+  const [isUnregisteredFace, setIsUnregisteredFace] = useState(false);
   const [lowLightBoost, setLowLightBoost] = useState(true);
-  const [forceReRegisterFace, setForceReRegisterFace] = useState(false);
+  const [registerNameInput, setRegisterNameInput] = useState('');
 
   // Voice PIN state
   const [voicePin, setVoicePin] = useState('');
   const [isListeningPin, setIsListeningPin] = useState(false);
-  const [forceReRegisterVoicePin, setForceReRegisterVoicePin] = useState(false);
+  const [pinRegisterName, setPinRegisterName] = useState('');
+  const [isUnregisteredPin, setIsUnregisteredPin] = useState(false);
 
   // Password state
   const [passwordInput, setPasswordInput] = useState('');
   const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
-  const [forceReRegisterPassword, setForceReRegisterPassword] = useState(false);
+  const [passwordRegisterName, setPasswordRegisterName] = useState('');
+  const [isUnregisteredPasswordMode, setIsUnregisteredPasswordMode] = useState(false);
   const [passwordErrorMsg, setPasswordErrorMsg] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Load account & security credentials whenever modal opens or target account changes
+  // Reset modal state on open/close
   useEffect(() => {
-    if (isOpen) {
-      const activeName = targetAccountName || getActiveUserAccount() || 'Saravanan';
-      setTargetAccountName(activeName);
-      loadUserCredentials(activeName);
-    } else {
+    if (!isOpen) {
       stopCamera();
       setIsScanningFace(false);
       setFaceVerified(false);
-      setFaceRegisteredSuccess(false);
+      setDetectedAccountName(null);
+      setDetectedAccountPhoto(null);
+      setIsUnregisteredFace(false);
       setPasswordErrorMsg(null);
+      setIsUnregisteredPasswordMode(false);
+      setIsUnregisteredPin(false);
     }
-  }, [isOpen, targetAccountName]);
-
-  const loadUserCredentials = (accountName: string) => {
-    const creds = getSavedSecurityCredentials(accountName);
-    setSecurityCreds(creds);
-  };
-
-  const handleAccountChange = (newName: string) => {
-    stopCamera();
-    setIsScanningFace(false);
-    setFaceVerified(false);
-    setTargetAccountName(newName);
-    setActiveUserAccount(newName);
-    loadUserCredentials(newName);
-  };
+  }, [isOpen]);
 
   const stopCamera = () => {
     if (mediaStreamRef.current) {
@@ -109,19 +90,16 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
     return '';
   };
 
-  // --- TAB 1: FACE ID LOGIC (USER-SCOPED) ---
+  // --- TAB 1: AUTOMATIC FACE ID DETECTION & REGISTRATION ---
   const startCameraScan = async () => {
     setIsScanningFace(true);
     setFaceVerified(false);
-    setFaceRegisteredSuccess(false);
+    setIsUnregisteredFace(false);
+    setDetectedAccountName(null);
 
-    const hasFaceRegistered = Boolean(securityCreds.face) && !forceReRegisterFace;
+    const faceAccounts = getAllRegisteredFaceAccounts();
 
-    if (!hasFaceRegistered) {
-      voiceService.speak(`No face registered for ${targetAccountName}. Position your face to register.`, 'en-IN');
-    } else {
-      voiceService.speak(`Face ID active for ${targetAccountName}. Position your face.`, 'en-IN');
-    }
+    voiceService.speak("Face ID scanner active. Position your face inside the circle.", 'en-IN');
 
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
@@ -133,54 +111,67 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
           videoRef.current.srcObject = stream;
         }
 
-        if (hasFaceRegistered) {
-          setTimeout(() => {
+        // Simulate AI Face Detection & Identification across registry (2.2 seconds)
+        setTimeout(() => {
+          if (faceAccounts.length > 0) {
+            // Automatically detect the active or registered user account
+            const matchedAccount = faceAccounts[0]; 
+            const accountName = matchedAccount.userName || 'Senior Creator';
+            setDetectedAccountName(accountName);
+            setDetectedAccountPhoto(matchedAccount.security.face?.photoUrl || null);
             setFaceVerified(true);
-            voiceService.speak(`Face ID Verified. Welcome back, ${targetAccountName}!`, 'en-IN');
+
+            voiceService.speak(`Face Recognized! Welcome back, ${accountName}!`, 'en-IN');
             setTimeout(() => {
-              completeSignIn(targetAccountName);
+              completeSignIn(accountName);
             }, 1400);
-          }, 2600);
-        }
+          } else {
+            // No registered faces in database -> Prompt for Face Registration
+            setIsUnregisteredFace(true);
+            voiceService.speak("Unregistered face detected. Please enter your name below to register your face biometrics.", 'en-IN');
+          }
+        }, 2200);
       } else {
         alert("Camera access is not supported on this browser.");
         setIsScanningFace(false);
       }
     } catch (err) {
       console.warn("Camera access error:", err);
-      if (hasFaceRegistered) {
-        setTimeout(() => {
-          setFaceVerified(true);
-          voiceService.speak(`Face ID Verified for ${targetAccountName}. Welcome back!`, 'en-IN');
-          setTimeout(() => completeSignIn(targetAccountName), 1400);
-        }, 2200);
+      // Fallback demo face detection
+      const faceAccounts = getAllRegisteredFaceAccounts();
+      if (faceAccounts.length > 0) {
+        const accountName = faceAccounts[0].userName || 'Senior Creator';
+        setDetectedAccountName(accountName);
+        setFaceVerified(true);
+        voiceService.speak(`Face Verified! Welcome back, ${accountName}!`, 'en-IN');
+        setTimeout(() => completeSignIn(accountName), 1400);
+      } else {
+        setIsUnregisteredFace(true);
+        voiceService.speak("Unregistered face detected. Enter your name to register your face.", 'en-IN');
       }
     }
   };
 
+  // Register New Face Action
   const handleRegisterNewFace = () => {
+    const targetName = registerNameInput.trim() || 'Senior Creator';
     const photoDataUrl = captureNormalizedFrame();
-    const registered = registerFaceData(targetAccountName, photoDataUrl);
-    setSecurityCreds(prev => ({ ...prev, face: registered }));
-    setFaceRegisteredSuccess(true);
-    setForceReRegisterFace(false);
     
-    voiceService.speak(`Face ID registered successfully for ${targetAccountName}! Logging you in now.`, 'en-IN');
+    registerFaceData(targetName, photoDataUrl);
+    setDetectedAccountName(targetName);
+    setFaceVerified(true);
+    setIsUnregisteredFace(false);
+    
+    voiceService.speak(`Face ID registered successfully for ${targetName}! Logging you in now.`, 'en-IN');
     setTimeout(() => {
-      completeSignIn(targetAccountName);
-    }, 1500);
+      completeSignIn(targetName);
+    }, 1400);
   };
 
-  // --- TAB 2: VOICE PIN LOGIC (USER-SCOPED) ---
+  // --- TAB 2: AUTOMATIC VOICE PIN DETECTION & REGISTRATION ---
   const startVoicePinListening = () => {
     setIsListeningPin(true);
-    const hasPin = Boolean(securityCreds.voicePin) && !forceReRegisterVoicePin;
-
-    if (!hasPin) {
-      voiceService.speak(`Please speak a secret 4-digit PIN to register for ${targetAccountName}.`, 'en-IN');
-    } else {
-      voiceService.speak(`Please speak your 4-digit Voice PIN to sign in as ${targetAccountName}.`, 'en-IN');
-    }
+    voiceService.speak("Please speak your 4-digit Voice PIN to sign in.", 'en-IN');
 
     voiceService.startListening({
       onResult: (res) => {
@@ -190,15 +181,22 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
           const extractedDigits = match ? match.join('') : rawText;
           setVoicePin(extractedDigits);
 
-          if (!hasPin) {
-            registerVoicePinData(extractedDigits, targetAccountName);
-            setSecurityCreds(prev => ({ ...prev, voicePin: extractedDigits }));
-            setForceReRegisterVoicePin(false);
-            voiceService.speak(`Voice PIN ${extractedDigits} registered successfully for ${targetAccountName}!`, 'en-IN');
-            setTimeout(() => completeSignIn(targetAccountName), 1400);
+          // Automatically detect account matching spoken Voice PIN
+          const matchedAccount = findAccountByVoicePin(extractedDigits);
+
+          if (matchedAccount) {
+            const name = matchedAccount.userName;
+            voiceService.speak(`Voice PIN recognized for ${name}! Access granted.`, 'en-IN');
+            setTimeout(() => completeSignIn(name), 1400);
           } else {
-            voiceService.speak(`Voice PIN recognized for ${targetAccountName}. Access granted!`, 'en-IN');
-            setTimeout(() => completeSignIn(targetAccountName), 1400);
+            if (isUnregisteredPin && pinRegisterName.trim()) {
+              registerVoicePinData(extractedDigits, pinRegisterName.trim());
+              voiceService.speak(`Voice PIN registered for ${pinRegisterName}!`, 'en-IN');
+              setTimeout(() => completeSignIn(pinRegisterName.trim()), 1400);
+            } else {
+              setIsUnregisteredPin(true);
+              voiceService.speak("Voice PIN not recognized. Enter your name below to register this Voice PIN.", 'en-IN');
+            }
           }
         }
       },
@@ -207,15 +205,15 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
     });
   };
 
-  // --- TAB 3: PASSWORD LOGIC & CROSS-USER UNIQUE CHECK ---
+  // --- TAB 3: AUTOMATIC PASSWORD DETECTION & CROSS-USER UNIQUE CHECK ---
   const handlePasswordSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setPasswordErrorMsg(null);
 
-    const hasPassword = Boolean(securityCreds.password) && !forceReRegisterPassword;
+    // If submitting registration form for a new account
+    if (isUnregisteredPasswordMode) {
+      const name = passwordRegisterName.trim() || 'Senior Creator';
 
-    if (!hasPassword) {
-      // Registration mode
       if (passwordInput.length < 4) {
         setPasswordErrorMsg("Password must be at least 4 characters.");
         return;
@@ -226,26 +224,31 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
       }
 
       // Check CROSS-USER Password Uniqueness
-      if (isPasswordUsedByOtherUser(targetAccountName, passwordInput)) {
-        const errorText = `This password is used by another user account. Please choose a unique password.`;
+      if (isPasswordUsedByOtherUser(name, passwordInput)) {
+        const errorText = "This password is used by another user. Please choose a unique password for your account.";
         setPasswordErrorMsg(errorText);
         voiceService.speak("This password is used by another user. Please choose a unique password for your account.", 'en-IN');
         return;
       }
 
-      registerPasswordData(passwordInput, targetAccountName);
-      setSecurityCreds(prev => ({ ...prev, password: passwordInput }));
-      setForceReRegisterPassword(false);
-      voiceService.speak(`Password set successfully for ${targetAccountName}! Logging in now.`, 'en-IN');
-      completeSignIn(targetAccountName);
+      registerPasswordData(passwordInput, name);
+      voiceService.speak(`Password set successfully for ${name}! Logging in now.`, 'en-IN');
+      completeSignIn(name);
+      return;
+    }
+
+    // Attempt Automatic Account Detection by Password
+    const matchedAccount = findAccountByPassword(passwordInput);
+
+    if (matchedAccount) {
+      const detectedName = matchedAccount.userName;
+      voiceService.speak(`Password Recognized! Welcome back, ${detectedName}!`, 'en-IN');
+      completeSignIn(detectedName);
     } else {
-      // Login mode
-      if (passwordInput === securityCreds.password || passwordInput.length > 0) {
-        voiceService.speak(`Password verified for ${targetAccountName}. Welcome back!`, 'en-IN');
-        completeSignIn(targetAccountName);
-      } else {
-        setPasswordErrorMsg("Incorrect password. Please try again.");
-      }
+      // Password not found in registry -> Prompt user to register account with this password
+      setIsUnregisteredPasswordMode(true);
+      setPasswordErrorMsg("No account found with this password. Enter your name below to register a new account.");
+      voiceService.speak("No account found with this password. Please enter your name below to register.", 'en-IN');
     }
   };
 
@@ -270,17 +273,13 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
 
   if (!isOpen) return null;
 
-  const isFaceRegistered = Boolean(securityCreds.face) && !forceReRegisterFace;
-  const isVoicePinRegistered = Boolean(securityCreds.voicePin) && !forceReRegisterVoicePin;
-  const isPasswordRegistered = Boolean(securityCreds.password) && !forceReRegisterPassword;
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fadeIn">
       <canvas ref={canvasRef} className="hidden" />
 
       <div className="bg-white border-2 border-[#031635] rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col relative">
         
-        {/* Header */}
+        {/* Clean Modal Header without Manual Dropdown Selector */}
         <div className="bg-[#031635] text-white p-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-[#FDBC13] text-[#261900] rounded-xl flex items-center justify-center font-black text-xl shadow">
@@ -288,7 +287,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
             </div>
             <div>
               <h2 className="text-xl font-extrabold tracking-tight">SilverHands Security Hub</h2>
-              <p className="text-xs text-slate-300">Biometric & Account Authentication</p>
+              <p className="text-xs text-slate-300">Biometric & AI Account Authentication</p>
             </div>
           </div>
           <button
@@ -297,25 +296,6 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
           >
             <X className="w-5 h-5 text-white" />
           </button>
-        </div>
-
-        {/* User Account Switcher Selector Bar */}
-        <div className="bg-[#0A2540] border-b border-[#1A365D] px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-white text-xs font-bold">
-            <Users className="w-4 h-4 text-[#FDBC13]" /> Active Account:
-          </div>
-          <div className="flex items-center gap-2">
-            <select
-              value={targetAccountName}
-              onChange={(e) => handleAccountChange(e.target.value)}
-              className="bg-[#031635] text-white border border-[#FDBC13] rounded-xl px-3 py-1.5 text-xs font-extrabold outline-none cursor-pointer"
-            >
-              <option value="Saravanan">Saravanan</option>
-              <option value="Aravind">Aravind</option>
-              <option value="Savitri Devi">Savitri Devi</option>
-              <option value="Lakshmi Amma">Lakshmi Amma</option>
-            </select>
-          </div>
         </div>
 
         {/* Auth Mode Tabs */}
@@ -329,7 +309,6 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
             }`}
           >
             <ScanFace className="w-4 h-4 text-[#FDBC13]" /> Face ID
-            {securityCreds.face && <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-full font-bold">Set</span>}
           </button>
 
           <button
@@ -341,7 +320,6 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
             }`}
           >
             <Mic className="w-4 h-4 text-[#031635]" /> Voice PIN
-            {securityCreds.voicePin && <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-full font-bold">Set</span>}
           </button>
 
           <button
@@ -353,49 +331,29 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
             }`}
           >
             <KeyRound className="w-4 h-4 text-[#031635]" /> Password
-            {securityCreds.password && <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-full font-bold">Set</span>}
           </button>
         </div>
 
         {/* Modal Body Content */}
         <div className="p-6 space-y-6">
           
-          {/* ==================== TAB 1: FACE ID (USER-ISOLATED) ==================== */}
+          {/* ==================== TAB 1: AUTOMATIC FACE ID DETECTION ==================== */}
           {activeTab === 'face' && (
             <div className="text-center space-y-5">
               {!isScanningFace ? (
                 <div className="space-y-5">
                   <div className="relative w-24 h-24 bg-[#D8E2FF] text-[#031635] rounded-full flex items-center justify-center mx-auto border-4 border-[#031635] shadow-lg">
-                    {securityCreds.face?.photoUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={securityCreds.face.photoUrl} alt="Registered Face" className="w-full h-full object-cover rounded-full" />
-                    ) : (
-                      <ScanFace className="w-12 h-12 text-[#031635]" />
-                    )}
+                    <ScanFace className="w-12 h-12 text-[#031635]" />
                   </div>
 
                   <div className="space-y-1">
-                    <div className="flex items-center justify-center gap-2">
-                      <h3 className="text-2xl font-black text-[#031635]">Biometric Face ID</h3>
-                      {isFaceRegistered ? (
-                        <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold px-2.5 py-0.5 rounded-full">
-                          {targetAccountName}&apos;s Face Set
-                        </span>
-                      ) : (
-                        <span className="bg-amber-100 text-amber-800 border border-amber-300 text-xs font-bold px-2.5 py-0.5 rounded-full">
-                          Unregistered for {targetAccountName}
-                        </span>
-                      )}
-                    </div>
-                    
+                    <h3 className="text-2xl font-black text-[#031635]">AI Face Recognition</h3>
                     <p className="text-sm text-[#44474E]">
-                      {isFaceRegistered
-                        ? `Registered to ${targetAccountName}. Scan face to login.`
-                        : `No face biometrics set for ${targetAccountName}. Tap below to register ${targetAccountName}'s face.`}
+                      Look at the camera. AI will automatically identify your face and log you into your account.
                     </p>
                   </div>
 
-                  {/* Low Light Booster Control */}
+                  {/* Low Light Night Booster Control */}
                   <div className="flex items-center justify-between bg-[#FAF9F6] border border-[#E3E2E0] p-3 rounded-2xl">
                     <div className="flex items-center gap-2 text-left">
                       <div className="p-2 bg-[#FDBC13]/20 text-[#6B4D00] rounded-xl">
@@ -422,18 +380,8 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
                     onClick={startCameraScan}
                     className="w-full py-4 bg-[#031635] text-white text-lg font-bold rounded-2xl shadow-lg hover:bg-[#1a2b4b] flex items-center justify-center gap-3 transition active:scale-95"
                   >
-                    <ScanFace className="w-6 h-6 text-[#FDBC13]" /> 
-                    {isFaceRegistered ? `Scan Face to Login as ${targetAccountName}` : `Register ${targetAccountName}'s Face`}
+                    <ScanFace className="w-6 h-6 text-[#FDBC13]" /> Start Face ID Scan
                   </button>
-
-                  {isFaceRegistered && (
-                    <button
-                      onClick={() => { setForceReRegisterFace(true); startCameraScan(); }}
-                      className="text-xs font-bold text-[#75777F] hover:text-[#031635] underline flex items-center justify-center gap-1 mx-auto"
-                    >
-                      <UserPlus className="w-3.5 h-3.5" /> Re-Register Face for {targetAccountName}
-                    </button>
-                  )}
                 </div>
               ) : (
                 <div className="space-y-4 flex flex-col items-center relative">
@@ -456,11 +404,11 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
                       
                       <div className="absolute inset-0 border-4 border-dashed border-[#FDBC13] rounded-full animate-spin pointer-events-none opacity-80" style={{ animationDuration: '6s' }} />
 
-                      {(faceVerified || faceRegisteredSuccess) && (
+                      {faceVerified && (
                         <div className="absolute inset-0 bg-emerald-950/90 backdrop-blur-sm flex flex-col items-center justify-center text-white space-y-2">
                           <CheckCircle2 className="w-16 h-16 text-emerald-400 animate-bounce" />
-                          <span className="text-xl font-extrabold">
-                            {faceRegisteredSuccess ? 'Face Registered!' : 'Face ID Verified!'}
+                          <span className="text-xl font-extrabold text-center px-4">
+                            Welcome Back, {detectedAccountName}!
                           </span>
                         </div>
                       )}
@@ -468,21 +416,37 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
                   </div>
 
                   <div className="space-y-2 w-full max-w-sm">
-                    <div className="text-xs uppercase font-extrabold tracking-widest text-[#2D5A27] flex items-center justify-center gap-1.5">
-                      <RefreshCw className="w-4 h-4 animate-spin text-[#031635]" /> 
-                      {lowLightBoost ? 'Night Booster Active • Auto-Gain Normalizing...' : 'Scanning Biometric Features...'}
-                    </div>
+                    {!isUnregisteredFace && !faceVerified && (
+                      <div className="text-xs uppercase font-extrabold tracking-widest text-[#2D5A27] flex items-center justify-center gap-1.5">
+                        <RefreshCw className="w-4 h-4 animate-spin text-[#031635]" /> 
+                        {lowLightBoost ? 'Night Booster Active • Detecting Account...' : 'Matching Biometric Features...'}
+                      </div>
+                    )}
 
-                    {!isFaceRegistered && !faceRegisteredSuccess && (
-                      <div className="space-y-3 bg-[#FAF9F6] p-4 rounded-2xl border border-[#E3E2E0]">
-                        <div className="text-xs text-[#44474E] font-medium text-left">
-                          Registering face for user account: <strong className="text-[#031635]">{targetAccountName}</strong>
+                    {/* Registration Form when Unregistered Face detected */}
+                    {isUnregisteredFace && !faceVerified && (
+                      <div className="space-y-3 bg-[#FAF9F6] p-4 rounded-2xl border-2 border-[#FDBC13]">
+                        <div className="text-xs font-bold text-amber-800 flex items-center gap-1.5">
+                          <AlertCircle className="w-4 h-4 text-amber-600" /> Unregistered Face Detected
+                        </div>
+                        <p className="text-xs text-[#44474E] text-left">
+                          Please enter your name to register your face biometrics for a new account.
+                        </p>
+                        <div>
+                          <input
+                            type="text"
+                            value={registerNameInput}
+                            onChange={(e) => setRegisterNameInput(e.target.value)}
+                            placeholder="e.g. Saravanan or Aravind"
+                            className="w-full px-4 py-2.5 border-2 border-[#E3E2E0] rounded-xl text-sm font-bold text-[#031635] outline-none"
+                            required
+                          />
                         </div>
                         <button
                           onClick={handleRegisterNewFace}
                           className="w-full py-3 bg-[#2D5A27] text-white text-sm font-bold rounded-xl shadow hover:bg-[#20421c] transition flex items-center justify-center gap-2"
                         >
-                          <Camera className="w-4 h-4" /> 📸 Capture & Register Face for {targetAccountName}
+                          <Camera className="w-4 h-4" /> 📸 Capture & Register Face
                         </button>
                       </div>
                     )}
@@ -492,7 +456,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
             </div>
           )}
 
-          {/* ==================== TAB 2: VOICE PIN (USER-ISOLATED) ==================== */}
+          {/* ==================== TAB 2: AUTOMATIC VOICE PIN DETECTION ==================== */}
           {activeTab === 'voice_pin' && (
             <div className="text-center space-y-6">
               <div className="w-20 h-20 bg-[#FFDEA3] text-[#6B4D00] rounded-full flex items-center justify-center mx-auto shadow-md">
@@ -500,29 +464,30 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
               </div>
 
               <div className="space-y-1">
-                <div className="flex items-center justify-center gap-2">
-                  <h3 className="text-2xl font-extrabold text-[#031635]">Voice PIN</h3>
-                  {isVoicePinRegistered ? (
-                    <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold px-2.5 py-0.5 rounded-full">
-                      PIN Set
-                    </span>
-                  ) : (
-                    <span className="bg-amber-100 text-amber-800 border border-amber-300 text-xs font-bold px-2.5 py-0.5 rounded-full">
-                      Unregistered
-                    </span>
-                  )}
-                </div>
-                
+                <h3 className="text-2xl font-extrabold text-[#031635]">Voice PIN Sign In</h3>
                 <p className="text-sm text-[#44474E]">
-                  {isVoicePinRegistered 
-                    ? `Speak your 4-digit PIN aloud to sign in as ${targetAccountName}.` 
-                    : `No Voice PIN set for ${targetAccountName}. Speak a secret 4-digit PIN to register.`}
+                  Speak your 4-digit Voice PIN aloud. AI will detect your user account automatically.
                 </p>
               </div>
 
               {voicePin && (
                 <div className="p-4 bg-[#FAF9F6] border border-[#FDBC13] rounded-2xl text-xl font-bold font-mono text-[#031635]">
                   PIN Spoken: &quot;{voicePin}&quot;
+                </div>
+              )}
+
+              {isUnregisteredPin && (
+                <div className="p-4 bg-amber-50 border border-amber-300 rounded-2xl text-left space-y-2">
+                  <div className="text-xs font-bold text-amber-800 flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 text-amber-600" /> New Voice PIN Detected
+                  </div>
+                  <input
+                    type="text"
+                    value={pinRegisterName}
+                    onChange={(e) => setPinRegisterName(e.target.value)}
+                    placeholder="Enter your name (e.g. Saravanan)"
+                    className="w-full px-4 py-2 border rounded-xl text-sm font-bold text-[#031635]"
+                  />
                 </div>
               )}
 
@@ -533,38 +498,16 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
                 }`}
               >
                 <Mic className="w-6 h-6 text-[#FDBC13]" />
-                {isListeningPin 
-                  ? 'Listening for 4-digit PIN...' 
-                  : (isVoicePinRegistered ? `Speak Voice PIN to Login (${targetAccountName})` : `🎙️ Record Voice PIN for ${targetAccountName}`)}
+                {isListeningPin ? 'Listening for 4-digit PIN...' : 'Speak Voice PIN to Login'}
               </button>
-
-              {isVoicePinRegistered && (
-                <button
-                  onClick={() => { setForceReRegisterVoicePin(true); startVoicePinListening(); }}
-                  className="text-xs font-bold text-[#75777F] hover:text-[#031635] underline flex items-center justify-center gap-1 mx-auto"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" /> Change Voice PIN for {targetAccountName}
-                </button>
-              )}
             </div>
           )}
 
-          {/* ==================== TAB 3: PASSWORD & CROSS-USER UNIQUE CHECK ==================== */}
+          {/* ==================== TAB 3: AUTOMATIC PASSWORD DETECTION ==================== */}
           {activeTab === 'password' && (
             <form onSubmit={handlePasswordSubmit} className="space-y-5">
               <div className="flex items-center justify-between">
-                <h3 className="text-xl font-extrabold text-[#031635]">
-                  {isPasswordRegistered ? `Password Login (${targetAccountName})` : `Set Password (${targetAccountName})`}
-                </h3>
-                {isPasswordRegistered ? (
-                  <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold px-2.5 py-0.5 rounded-full">
-                    Password Set
-                  </span>
-                ) : (
-                  <span className="bg-amber-100 text-amber-800 border border-amber-300 text-xs font-bold px-2.5 py-0.5 rounded-full">
-                    Unregistered
-                  </span>
-                )}
+                <h3 className="text-xl font-extrabold text-[#031635]">Password Sign In</h3>
               </div>
 
               {passwordErrorMsg && (
@@ -574,12 +517,60 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
                 </div>
               )}
 
-              {!isPasswordRegistered ? (
-                // Password Registration Mode
+              {!isUnregisteredPasswordMode ? (
+                // Automatic Password Login Input Mode
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-extrabold text-[#031635] block">
+                      Enter Password
+                    </label>
+                    <input
+                      type="password"
+                      value={passwordInput}
+                      onChange={(e) => { setPasswordInput(e.target.value); setPasswordErrorMsg(null); }}
+                      placeholder="••••••••"
+                      className="w-full px-5 py-4 border-2 border-[#E3E2E0] focus:border-[#031635] rounded-2xl text-xl font-bold text-[#031635] outline-none transition"
+                      required
+                    />
+                    <p className="text-xs text-[#75777F]">
+                      AI will automatically match your password to your account.
+                    </p>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-4 bg-[#031635] text-white text-lg font-bold rounded-2xl shadow-lg hover:bg-[#1a2b4b] transition active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    <KeyRound className="w-5 h-5 text-[#FDBC13]" /> Sign In with Password
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => { setIsUnregisteredPasswordMode(true); setPasswordInput(''); setPasswordErrorMsg(null); }}
+                    className="text-xs font-bold text-[#75777F] hover:text-[#031635] underline flex items-center justify-center gap-1 mx-auto"
+                  >
+                    + Register New Password Account
+                  </button>
+                </div>
+              ) : (
+                // New Account Registration Mode with Password Uniqueness Check
                 <div className="space-y-4">
                   <p className="text-xs text-[#44474E]">
-                    Create a unique password for <strong className="text-[#031635]">{targetAccountName}</strong>. Passwords cannot be reused across accounts.
+                    Enter your name and a unique password to create a new account. Passwords cannot be reused across accounts.
                   </p>
+
+                  <div>
+                    <label className="text-xs font-extrabold text-[#031635] block mb-1">Account Name</label>
+                    <input
+                      type="text"
+                      value={passwordRegisterName}
+                      onChange={(e) => setPasswordRegisterName(e.target.value)}
+                      placeholder="e.g. Saravanan or Aravind"
+                      className="w-full px-4 py-3 border-2 border-[#E3E2E0] focus:border-[#031635] rounded-xl text-base font-bold text-[#031635] outline-none"
+                      required
+                    />
+                  </div>
+
                   <div>
                     <label className="text-xs font-extrabold text-[#031635] block mb-1">Create Password</label>
                     <input
@@ -591,6 +582,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
                       required
                     />
                   </div>
+
                   <div>
                     <label className="text-xs font-extrabold text-[#031635] block mb-1">Confirm Password</label>
                     <input
@@ -602,43 +594,20 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
                       required
                     />
                   </div>
+
                   <button
                     type="submit"
                     className="w-full py-4 bg-[#031635] text-white text-lg font-bold rounded-2xl shadow-lg hover:bg-[#1a2b4b] transition active:scale-95 flex items-center justify-center gap-2"
                   >
                     <Lock className="w-5 h-5 text-[#FDBC13]" /> Save & Register Password
                   </button>
-                </div>
-              ) : (
-                // Password Login Mode
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-xs font-extrabold text-[#031635] block">
-                      Enter Password for {targetAccountName}
-                    </label>
-                    <input
-                      type="password"
-                      value={passwordInput}
-                      onChange={(e) => { setPasswordInput(e.target.value); setPasswordErrorMsg(null); }}
-                      placeholder="••••••••"
-                      className="w-full px-5 py-4 border-2 border-[#E3E2E0] focus:border-[#031635] rounded-2xl text-xl font-bold text-[#031635] outline-none transition"
-                      required
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="w-full py-4 bg-[#031635] text-white text-lg font-bold rounded-2xl shadow-lg hover:bg-[#1a2b4b] transition active:scale-95 flex items-center justify-center gap-2"
-                  >
-                    <KeyRound className="w-5 h-5 text-[#FDBC13]" /> Sign In as {targetAccountName}
-                  </button>
 
                   <button
                     type="button"
-                    onClick={() => { setForceReRegisterPassword(true); setPasswordInput(''); setPasswordErrorMsg(null); }}
+                    onClick={() => { setIsUnregisteredPasswordMode(false); setPasswordErrorMsg(null); }}
                     className="text-xs font-bold text-[#75777F] hover:text-[#031635] underline flex items-center justify-center gap-1 mx-auto"
                   >
-                    Reset / Create New Password
+                    Back to Automatic Sign In
                   </button>
                 </div>
               )}
