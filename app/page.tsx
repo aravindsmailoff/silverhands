@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { voiceService } from '@/lib/voice';
 import { 
-  voiceAgent, ProfileState, AgentTurnResponse, INITIAL_PROFILE_STATE, 
+  voiceAgent, ProfileState, ConversationState, AgentTurnResponse, INITIAL_PROFILE_STATE, 
   getSavedProfile, resetAllAccountsToBlank, registerFaceData, 
   registerVoicePinData, registerPasswordData, registerCompleteUserAccount, 
   setActiveUserAccount, getActiveUserAccount, isPasswordUsedByOtherUser 
@@ -22,10 +22,13 @@ type AgentVisualState = 'IDLE' | 'AI_SPEAKING' | 'LISTENING_TO_YOU' | 'PROCESSIN
 export default function VoiceConversationalApp() {
   const router = useRouter();
   const [agentState, setAgentState] = useState<AgentVisualState>('IDLE');
+  const [conversationState, setConversationState] = useState<ConversationState>('ASKING_NAME');
   const [currentAiQuestion, setCurrentAiQuestion] = useState<string>(
     "Welcome to SilverHands! I will help you create your profile using voice. What is your name?"
   );
   const [userTranscript, setUserTranscript] = useState<string>('');
+  const [isTextEditOpen, setIsTextEditOpen] = useState<boolean>(false);
+  const [editText, setEditText] = useState<string>('');
   const [profileState, setProfileState] = useState<ProfileState>({ ...INITIAL_PROFILE_STATE });
   const [hasStarted, setHasStarted] = useState<boolean>(false);
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
@@ -53,10 +56,39 @@ export default function VoiceConversationalApp() {
     // Auto-initialize Railway PostgreSQL database schema
     fetch('/api/db/init').catch((err) => console.warn('[DB Init Warning]:', err));
 
-    const saved = getSavedProfile();
+    const activeName = getActiveUserAccount();
+    const saved = getSavedProfile(activeName || undefined);
     if (saved && saved.name && saved.name !== 'Senior Creator') {
       setProfileState(saved);
       setIsLoggedIn(true);
+
+      // Sync confirmed profile data from PostgreSQL
+      fetch('/api/users/sync')
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.accounts && data.accounts.length > 0) {
+            const userAcc = data.accounts.find((a: any) => 
+              (a.user_name || '').toLowerCase() === (saved.name || '').toLowerCase()
+            );
+            if (userAcc) {
+              setProfileState(prev => ({
+                ...prev,
+                name: userAcc.user_name || prev.name,
+                skill: userAcc.skill !== null && userAcc.skill !== undefined ? userAcc.skill : prev.skill,
+                experience_years: userAcc.experience_years !== null && userAcc.experience_years !== undefined ? Number(userAcc.experience_years) : prev.experience_years,
+                location: userAcc.location !== null && userAcc.location !== undefined ? userAcc.location : prev.location,
+                language: userAcc.language || prev.language,
+                services: (userAcc.services && userAcc.services !== '[]') 
+                  ? (typeof userAcc.services === 'string' ? JSON.parse(userAcc.services) : userAcc.services) 
+                  : prev.services
+              }));
+            }
+          }
+        })
+        .catch(err => console.warn('[PostgreSQL Sync Warning]:', err));
+
+      // Automatically route logged in user to dashboard
+      router.push('/dashboard');
     } else {
       if (saved && saved.name === 'Senior Creator') {
         resetAllAccountsToBlank();
@@ -72,7 +104,7 @@ export default function VoiceConversationalApp() {
       }
       voiceService.stopListening();
     };
-  }, []);
+  }, [router]);
 
   const stopCamera = () => {
     if (mediaStreamRef.current) {
@@ -187,6 +219,7 @@ export default function VoiceConversationalApp() {
     resetAllAccountsToBlank();
     voiceAgent.resetState();
     setProfileState({ ...INITIAL_PROFILE_STATE });
+    setConversationState('ASKING_NAME');
     setIsLoggedIn(false);
     setHasStarted(false);
     setAgentState('IDLE');
@@ -202,13 +235,19 @@ export default function VoiceConversationalApp() {
   // Start a fresh new interactive voice conversation loop on homepage
   const handleStartConversation = () => {
     voiceAgent.resetState();
+    setConversationState('ASKING_NAME');
     setProfileState(voiceAgent.getProfileState());
     setHasStarted(true);
+    setIsTextEditOpen(false);
+    setEditText('');
     triggerAiSpeaking(currentAiQuestion);
   };
 
   // AI speaks question out loud, then opens mic automatically
   const triggerAiSpeaking = (textToSpeak: string) => {
+    setUserTranscript('');
+    setIsTextEditOpen(false);
+    setEditText('');
     setAgentState('AI_SPEAKING');
     setCurrentAiQuestion(textToSpeak);
 
@@ -228,6 +267,7 @@ export default function VoiceConversationalApp() {
       onResult: (result) => {
         if (result.transcript) {
           setUserTranscript(result.transcript);
+          setEditText(result.transcript);
         }
       },
       onError: (err) => {
@@ -241,22 +281,32 @@ export default function VoiceConversationalApp() {
   const handleRespeak = () => {
     setUserTranscript('');
     voiceService.stopListening();
-    triggerAiSpeaking("I am listening again. Please speak your altered answer.");
+    setIsTextEditOpen(true);
+    setEditText(userTranscript || '');
+    triggerAiSpeaking("I am listening again. You can speak into the mic or type your exact spelling below.");
   };
 
-  // Process user speech when user stops speaking or taps Submit
+  // Process user speech/text when user submits via voice or edit button
   const handleSendUserSpeech = async (speechTextToSend?: string) => {
-    const textToProcess = speechTextToSend || userTranscript;
-    if (!textToProcess.trim()) return;
+    const textToProcess = (speechTextToSend !== undefined ? speechTextToSend : (editText || userTranscript)).trim();
+    if (!textToProcess) return;
+
+    const currentTurn = voiceService.getTurnId();
+    console.log(`[VOICE] transcript_submitted { turn_id: ${currentTurn}, timestamp: ${Date.now()}, text: "${textToProcess}" }`);
 
     voiceService.stopListening();
     setUserTranscript('');
+    setIsTextEditOpen(false);
+    setEditText('');
     setAgentState('PROCESSING');
 
     try {
       const turnResponse: AgentTurnResponse = await voiceAgent.processUserSpeech(textToProcess);
+      console.log(`[VOICE] profile_update { turn_id: ${currentTurn}, timestamp: ${Date.now()}, state: '${turnResponse.conversation_state}', updated_profile:`, turnResponse.updated_profile, `next_question: "${turnResponse.next_question}" }`);
+      
       setProfileState(turnResponse.updated_profile);
       setConfirmationMode(turnResponse.confirmation_mode);
+      setConversationState(turnResponse.conversation_state);
 
       if (turnResponse.completed) {
         // Transition to Voice-Oriented Security & Password Registration Step
@@ -417,46 +467,94 @@ export default function VoiceConversationalApp() {
         <div className="lg:col-span-7 flex flex-col items-center justify-center space-y-8 bg-white border-2 border-[#E3E2E0] rounded-3xl p-6 md:p-10 shadow-md relative min-h-[540px]">
 
           {!hasStarted ? (
-            /* Welcome Launcher Screen */
-            <div className="text-center space-y-8 my-auto w-full max-w-md">
-              <div className="w-24 h-24 bg-[#031635] text-white rounded-full flex items-center justify-center mx-auto shadow-xl">
-                <span className="material-symbols-outlined text-5xl" style={{ fontVariationSettings: "'FILL' 1" }}>
-                  handshake
-                </span>
-              </div>
+            isLoggedIn ? (
+              /* Logged In Active Member Screen */
+              <div className="text-center space-y-8 my-auto w-full max-w-lg">
+                <div className="w-20 h-20 bg-[#2D5A27] text-white rounded-full flex items-center justify-center mx-auto shadow-xl">
+                  <CheckCircle2 className="w-12 h-12" />
+                </div>
 
-              <div className="space-y-3">
-                <h1 className="text-3xl md:text-4xl font-extrabold text-[#031635] leading-tight">
-                  Welcome to SilverHands
-                </h1>
-                <p className="text-lg text-[#44474E] leading-relaxed">
-                  Voice-driven livelihood platform for senior citizens. Create account with voice, facial photo scan, or PIN.
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                {/* Button 1: Create Account with Voice */}
-                <button
-                  onClick={handleStartConversation}
-                  className="group relative w-full h-[76px] bg-[#031635] text-white rounded-2xl flex items-center justify-center gap-4 shadow-xl hover:bg-[#1a2b4b] active:scale-95 transition-all"
-                >
-                  <div className="absolute inset-0 rounded-2xl ring-4 ring-[#FDBC13] ring-offset-2 ring-offset-white animate-pulse opacity-70 pointer-events-none" />
-                  <span className="material-symbols-outlined text-4xl text-[#FDBC13]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                    mic
+                <div className="space-y-2">
+                  <span className="inline-block bg-[#2D5A27]/10 text-[#2D5A27] font-bold text-xs px-3.5 py-1 rounded-full border border-[#2D5A27]/30">
+                    ✓ Active Account
                   </span>
-                  <span className="text-xl font-bold">Create Account with Voice</span>
-                </button>
+                  <h1 className="text-3xl md:text-4xl font-extrabold text-[#031635] leading-tight">
+                    Welcome back, {profileState.name || 'Member'}!
+                  </h1>
+                  <p className="text-base text-[#44474E] leading-relaxed">
+                    You are signed in to SilverHands. Access your creator dashboard, record videos, or update your profile details.
+                  </p>
+                </div>
 
-                {/* Button 2: Sign In with Facial Scan / Voice */}
-                <button
-                  onClick={() => setIsSignInModalOpen(true)}
-                  className="w-full py-4 bg-[#EFEEEB] hover:bg-[#E3E2E0] text-[#031635] text-lg font-bold rounded-2xl flex items-center justify-center gap-3 border-2 border-[#E3E2E0] transition active:scale-95 shadow-sm"
-                >
-                  <LogIn className="w-5 h-5 text-[#031635]" />
-                  <span>Sign In (Facial Scan / Voice / PIN)</span>
-                </button>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                  <Link
+                    href="/dashboard"
+                    className="w-full py-4 bg-[#FDBC13] text-[#261900] text-base font-extrabold rounded-2xl shadow-md flex items-center justify-center gap-2 hover:bg-[#F3B20B] transition active:scale-95"
+                  >
+                    Open Dashboard <ArrowRight className="w-4 h-4" />
+                  </Link>
+                  <Link
+                    href="/profile"
+                    className="w-full py-4 bg-[#031635] text-white text-base font-extrabold rounded-2xl shadow-md flex items-center justify-center gap-2 hover:bg-[#1a2b4b] transition active:scale-95"
+                  >
+                    View My Profile
+                  </Link>
+                  <Link
+                    href="/video/create"
+                    className="w-full py-3.5 bg-[#EFEEEB] hover:bg-[#E3E2E0] text-[#031635] text-sm font-bold rounded-2xl border border-[#E3E2E0] flex items-center justify-center gap-2 transition"
+                  >
+                    🎥 Video Studio
+                  </Link>
+                  <button
+                    onClick={handleStartConversation}
+                    className="w-full py-3.5 bg-[#EFEEEB] hover:bg-[#E3E2E0] text-[#031635] text-sm font-bold rounded-2xl border border-[#E3E2E0] flex items-center justify-center gap-2 transition"
+                  >
+                    🎙️ Update with Voice
+                  </button>
+                </div>
               </div>
-            </div>
+            ) : (
+              /* Welcome Launcher Screen for New / Unauthenticated Visitors */
+              <div className="text-center space-y-8 my-auto w-full max-w-md">
+                <div className="w-24 h-24 bg-[#031635] text-white rounded-full flex items-center justify-center mx-auto shadow-xl">
+                  <span className="material-symbols-outlined text-5xl" style={{ fontVariationSettings: "'FILL' 1" }}>
+                    handshake
+                  </span>
+                </div>
+
+                <div className="space-y-3">
+                  <h1 className="text-3xl md:text-4xl font-extrabold text-[#031635] leading-tight">
+                    Welcome to SilverHands
+                  </h1>
+                  <p className="text-lg text-[#44474E] leading-relaxed">
+                    Voice-driven livelihood platform for senior citizens. Create account with voice, facial photo scan, or PIN.
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  {/* Button 1: Create Account with Voice */}
+                  <button
+                    onClick={handleStartConversation}
+                    className="group relative w-full h-[76px] bg-[#031635] text-white rounded-2xl flex items-center justify-center gap-4 shadow-xl hover:bg-[#1a2b4b] active:scale-95 transition-all"
+                  >
+                    <div className="absolute inset-0 rounded-2xl ring-4 ring-[#FDBC13] ring-offset-2 ring-offset-white animate-pulse opacity-70 pointer-events-none" />
+                    <span className="material-symbols-outlined text-4xl text-[#FDBC13]" style={{ fontVariationSettings: "'FILL' 1" }}>
+                      mic
+                    </span>
+                    <span className="text-xl font-bold">Create Account with Voice</span>
+                  </button>
+
+                  {/* Button 2: Sign In with Facial Scan / Voice */}
+                  <button
+                    onClick={() => setIsSignInModalOpen(true)}
+                    className="w-full py-4 bg-[#EFEEEB] hover:bg-[#E3E2E0] text-[#031635] text-lg font-bold rounded-2xl flex items-center justify-center gap-3 border-2 border-[#E3E2E0] transition active:scale-95 shadow-sm"
+                  >
+                    <LogIn className="w-5 h-5 text-[#031635]" />
+                    <span>Sign In (Facial Scan / Voice / PIN)</span>
+                  </button>
+                </div>
+              </div>
+            )
           ) : agentState === 'SECURITY_REGISTRATION' ? (
             /* STEP 2 OF PROFILE CREATION: 100% VOICE-ORIENTED SECURITY SETUP */
             <form onSubmit={handleFinalizeSecurityRegistration} className="w-full space-y-6 text-center">
@@ -680,6 +778,44 @@ export default function VoiceConversationalApp() {
                   {userTranscript ? `"${userTranscript}"` : (agentState === 'LISTENING_TO_YOU' ? 'Listening for your spoken words...' : 'Waiting for audio...')}
                 </p>
 
+                {/* Conditional Inline Typing / Spelling Drawer on Re-speak / Correction */}
+                {isTextEditOpen && (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleSendUserSpeech(editText);
+                    }}
+                    className="w-full bg-[#FAF9F6] border-2 border-[#031635] rounded-2xl p-3 space-y-2 text-left"
+                  >
+                    <div className="flex items-center justify-between text-xs font-bold text-[#031635]">
+                      <span>✏️ Type or Fix Spelling (e.g. Harrish, Badminton):</span>
+                      <button
+                        type="button"
+                        onClick={() => setIsTextEditOpen(false)}
+                        className="text-[#75777F] hover:text-rose-600 font-normal"
+                      >
+                        ✕ Close
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        placeholder="Type exact spelling here..."
+                        autoFocus
+                        className="flex-1 px-3 py-2 bg-white border border-[#C5C6CF] rounded-xl text-base font-semibold text-[#031635] outline-none focus:border-[#031635]"
+                      />
+                      <button
+                        type="submit"
+                        className="px-4 py-2 bg-[#031635] text-[#FDBC13] text-sm font-bold rounded-xl hover:bg-[#1a2b4b] transition shadow"
+                      >
+                        Submit ➔
+                      </button>
+                    </div>
+                  </form>
+                )}
+
                 <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
                   {userTranscript && (
                     <button
@@ -696,6 +832,18 @@ export default function VoiceConversationalApp() {
                   >
                     <Mic className="w-4 h-4" /> Re-speak / Correct Answer
                   </button>
+
+                  {!isTextEditOpen && (
+                    <button
+                      onClick={() => {
+                        setIsTextEditOpen(true);
+                        setEditText(userTranscript || '');
+                      }}
+                      className="px-3 py-2 bg-[#F4F3F1] border border-[#C5C6CF] text-[#031635] text-xs font-bold rounded-xl hover:bg-[#E3E2E0] transition"
+                    >
+                      ✏️ Type Spelling
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -709,10 +857,10 @@ export default function VoiceConversationalApp() {
           <div className="bg-white border-2 border-[#E3E2E0] rounded-3xl p-6 shadow-md space-y-5">
             <div className="flex items-center justify-between border-b-2 border-[#E3E2E0] pb-3">
               <h3 className="text-xl font-extrabold text-[#031635] flex items-center gap-2">
-                <UserCheck className="w-5 h-5 text-[#2D5A27]" /> Live Profile State
+                <UserCheck className="w-5 h-5 text-[#2D5A27]" /> {isLoggedIn ? 'Active Member Profile' : 'Live Profile State'}
               </h3>
               <span className="text-xs font-bold text-[#2D5A27] bg-[#2D5A27]/10 px-3 py-1 rounded-full border border-[#2D5A27]/30">
-                REAL-TIME OLLAMA / AI
+                {isLoggedIn ? 'DATABASE CONFIRMED' : 'REAL-TIME OLLAMA / AI'}
               </span>
             </div>
 
@@ -739,48 +887,57 @@ export default function VoiceConversationalApp() {
                 </div>
               </div>
 
-              {/* Field 2: Skill */}
-              <div className={`p-3.5 rounded-2xl border transition-all ${profileState.skill ? 'bg-[#2D5A27]/10 border-[#2D5A27]/30' : 'bg-[#F4F3F1] border-[#E3E2E0]'}`}>
-                <div className="flex items-center justify-between text-xs font-semibold text-[#44474E]">
-                  <span>Primary Skill / Offering</span>
-                  {profileState.skill && (
+              {/* Field 2 & 3: Skills & Experience List */}
+              <div className={`p-3.5 rounded-2xl border transition-all ${profileState.skills && profileState.skills.length > 0 ? 'bg-[#2D5A27]/10 border-[#2D5A27]/30' : 'bg-[#F4F3F1] border-[#E3E2E0]'}`}>
+                <div className="flex items-center justify-between text-xs font-semibold text-[#44474E] mb-1">
+                  <span>Skills, Crafts &amp; Experience</span>
+                  {profileState.skills && profileState.skills.length > 0 && (
                     <button
                       onClick={() => {
-                        setProfileState(prev => ({ ...prev, skill: null }));
-                        triggerAiSpeaking("What is your correct skill or expertise?");
+                        setProfileState(prev => ({ ...prev, skills: [], skill: null, experience_years: null }));
+                        triggerAiSpeaking("What skills or crafts would you like to offer?");
                       }}
                       className="text-[11px] font-extrabold text-[#031635] hover:underline flex items-center gap-1"
                     >
-                      ✏️ Fix Skill
+                      ✏️ Fix Skills
                     </button>
                   )}
                 </div>
-                <div className="text-base font-extrabold text-[#031635] flex items-center justify-between mt-0.5">
-                  <span>{profileState.skill || 'Not collected yet...'}</span>
-                  {profileState.skill && <CheckCircle2 className="w-5 h-5 text-[#2D5A27]" />}
-                </div>
-              </div>
 
-              {/* Field 3: Experience */}
-              <div className={`p-3.5 rounded-2xl border transition-all ${profileState.experience_years !== null ? 'bg-[#2D5A27]/10 border-[#2D5A27]/30' : 'bg-[#F4F3F1] border-[#E3E2E0]'}`}>
-                <div className="flex items-center justify-between text-xs font-semibold text-[#44474E]">
-                  <span>Experience</span>
-                  {profileState.experience_years !== null && (
-                    <button
-                      onClick={() => {
-                        setProfileState(prev => ({ ...prev, experience_years: null }));
-                        triggerAiSpeaking("How many years of experience do you have?");
-                      }}
-                      className="text-[11px] font-extrabold text-[#031635] hover:underline flex items-center gap-1"
-                    >
-                      ✏️ Fix Experience
-                    </button>
-                  )}
-                </div>
-                <div className="text-base font-extrabold text-[#031635] flex items-center justify-between mt-0.5">
-                  <span>{profileState.experience_years !== null ? `${profileState.experience_years} Years` : 'Not collected yet...'}</span>
-                  {profileState.experience_years !== null && <CheckCircle2 className="w-5 h-5 text-[#2D5A27]" />}
-                </div>
+                {profileState.skills && profileState.skills.length > 0 ? (
+                  <div className="space-y-2 mt-1.5">
+                    {profileState.skills.map((s, idx) => (
+                      <div
+                        key={idx}
+                        className="bg-white/80 border border-[#C5C6CF] rounded-xl p-2.5 flex items-center justify-between shadow-sm"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-[#2D5A27]" />
+                          <div>
+                            <div className="text-sm font-extrabold text-[#031635] flex items-center gap-1.5">
+                              <span>{s.name}</span>
+                              {s.type === 'primary' && (
+                                <span className="text-[9px] uppercase font-black bg-[#FDBC13] text-[#261900] px-1.5 py-0.5 rounded-md">
+                                  Primary
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs font-semibold text-[#44474E]">
+                              {s.experience_years !== null
+                                ? (s.experience_years === 0 ? 'Starting out (0 years)' : `${s.experience_years} Years Experience`)
+                                : 'Experience pending...'}
+                            </div>
+                          </div>
+                        </div>
+                        <CheckCircle2 className="w-4 h-4 text-[#2D5A27] shrink-0" />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-base font-extrabold text-[#031635] flex items-center justify-between mt-0.5">
+                    <span>{profileState.skill || 'Not collected yet...'}</span>
+                  </div>
+                )}
               </div>
 
               {/* Field 4: Location */}
@@ -807,7 +964,7 @@ export default function VoiceConversationalApp() {
 
               {/* Field 5: Services */}
               <div className="p-3.5 rounded-2xl bg-[#F4F3F1] border border-[#E3E2E0]">
-                <div className="text-xs font-semibold text-[#44474E] mb-1.5">Auto-Generated Offerings</div>
+                <div className="text-xs font-semibold text-[#44474E] mb-1.5">Confirmed Service Offerings</div>
                 <div className="flex flex-wrap gap-1.5">
                   {profileState.services.length > 0 ? (
                     profileState.services.map((srv, idx) => (
@@ -816,10 +973,54 @@ export default function VoiceConversationalApp() {
                       </span>
                     ))
                   ) : (
-                    <span className="text-xs text-[#75777F] italic">Will generate on skill extraction...</span>
+                    <span className="text-xs text-[#75777F] italic">Not provided yet</span>
                   )}
                 </div>
               </div>
+
+              {/* Temporary Voice Pipeline Diagnostic Panel (Part 11) */}
+              <div className="mt-4 p-4 bg-[#0F172A] text-white rounded-2xl text-xs font-mono space-y-2 border border-slate-700 shadow-inner">
+                <div className="flex items-center justify-between border-b border-slate-700 pb-2">
+                  <span className="font-bold text-[#FDBC13] tracking-wide flex items-center gap-1.5">
+                    ⚙️ VOICE PIPELINE DIAGNOSTICS
+                  </span>
+                  <span className="bg-slate-800 px-2 py-0.5 rounded text-[10px] text-emerald-400 font-bold">
+                    TURN #{voiceService.getTurnId()}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <span className="text-slate-400 text-[10px] block uppercase">Conversation</span>
+                    <span className="font-bold text-sky-400 text-[11px] truncate block">{conversationState}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 text-[10px] block uppercase">Agent / Mic</span>
+                    <span className={`font-bold text-[11px] ${agentState === 'LISTENING_TO_YOU' ? 'text-emerald-400 animate-pulse' : 'text-amber-300'}`}>
+                      {agentState === 'LISTENING_TO_YOU' ? '🔴 LISTENING' : agentState}
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <span className="text-slate-400 text-[10px] block uppercase">Last User Transcript</span>
+                  <span className="text-sky-300 italic block truncate">"{userTranscript || '(waiting for speech...)'}"</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 text-[10px] block uppercase">Last Assistant Question</span>
+                  <span className="text-emerald-300 italic block truncate">"{currentAiQuestion || '(none)'}"</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 text-[10px] block uppercase">Extracted Profile State</span>
+                  <pre className="text-[10px] bg-slate-950 p-2 rounded text-slate-300 overflow-x-auto mt-1 border border-slate-800">
+                    {JSON.stringify({
+                      name: profileState.name,
+                      skill: profileState.skill,
+                      experience_years: profileState.experience_years,
+                      location: profileState.location
+                    }, null, 2)}
+                  </pre>
+                </div>
+              </div>
+
             </div>
           </div>
         </div>

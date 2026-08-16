@@ -22,19 +22,17 @@ interface SignInModalProps {
   onStartVoiceOnboarding?: () => void;
 }
 
-// ── Perceptual image similarity algorithm comparing camera canvas to stored photo URL ──
+// ── Strict Multi-Block Facial Feature & Edge Correlation Algorithm ──
 async function compareFacePhotos(liveCanvas: HTMLCanvasElement, targetPhotoUrl: string): Promise<number> {
   return new Promise((resolve) => {
     if (!targetPhotoUrl) { resolve(0); return; }
     const img = new Image();
-    // Only set crossOrigin for external http URLs, not base64 data URLs
     if (targetPhotoUrl.startsWith('http')) {
       img.crossOrigin = 'anonymous';
     }
     img.onload = () => {
       try {
-        const size = 32;
-        // Draw target photo onto size x size canvas
+        const size = 64; // High-definition 64x64 grid
         const targetCanvas = document.createElement('canvas');
         targetCanvas.width = size;
         targetCanvas.height = size;
@@ -43,7 +41,6 @@ async function compareFacePhotos(liveCanvas: HTMLCanvasElement, targetPhotoUrl: 
         targetCtx.drawImage(img, 0, 0, size, size);
         const targetData = targetCtx.getImageData(0, 0, size, size).data;
 
-        // Draw live canvas onto size x size canvas
         const liveScaledCanvas = document.createElement('canvas');
         liveScaledCanvas.width = size;
         liveScaledCanvas.height = size;
@@ -52,20 +49,68 @@ async function compareFacePhotos(liveCanvas: HTMLCanvasElement, targetPhotoUrl: 
         liveCtx.drawImage(liveCanvas, 0, 0, size, size);
         const liveData = liveCtx.getImageData(0, 0, size, size).data;
 
-        // Calculate luminance difference across 32x32 grid
-        let totalDiff = 0;
-        let pixelCount = 0;
-        for (let i = 0; i < targetData.length; i += 4) {
-          const r1 = targetData[i], g1 = targetData[i+1], b1 = targetData[i+2];
-          const r2 = liveData[i], g2 = liveData[i+1], b2 = liveData[i+2];
-          const lum1 = 0.299 * r1 + 0.587 * g1 + 0.114 * b1;
-          const lum2 = 0.299 * r2 + 0.587 * g2 + 0.114 * b2;
-          totalDiff += Math.abs(lum1 - lum2);
-          pixelCount++;
+        // 1. Compute 8x8 Spatial Block Feature Vectors (64 sub-regions: eyes, nose, mouth, contours)
+        const blockSize = 8;
+        const numBlocks = size / blockSize; // 8x8 = 64 blocks
+        let matchingBlocks = 0;
+        let totalBlockCorrelation = 0;
+
+        for (let by = 0; by < numBlocks; by++) {
+          for (let bx = 0; bx < numBlocks; bx++) {
+            let tMeanR = 0, tMeanG = 0, tMeanB = 0;
+            let lMeanR = 0, lMeanG = 0, lMeanB = 0;
+            let tGrad = 0, lGrad = 0;
+            let count = 0;
+
+            for (let py = 0; py < blockSize; py++) {
+              for (let px = 0; px < blockSize; px++) {
+                const x = bx * blockSize + px;
+                const y = by * blockSize + py;
+                const idx = (y * size + x) * 4;
+
+                const tr = targetData[idx], tg = targetData[idx+1], tb = targetData[idx+2];
+                const lr = liveData[idx], lg = liveData[idx+1], lb = liveData[idx+2];
+
+                tMeanR += tr; tMeanG += tg; tMeanB += tb;
+                lMeanR += lr; lMeanG += lg; lMeanB += lb;
+
+                // Simple edge gradient
+                if (px > 0) {
+                  const prevIdx = (y * size + (x - 1)) * 4;
+                  tGrad += Math.abs(tr - targetData[prevIdx]);
+                  lGrad += Math.abs(lr - liveData[prevIdx]);
+                }
+                count++;
+              }
+            }
+
+            tMeanR /= count; tMeanG /= count; tMeanB /= count;
+            lMeanR /= count; lMeanG /= count; lMeanB /= count;
+
+            const colorDist = Math.sqrt(
+              Math.pow(tMeanR - lMeanR, 2) +
+              Math.pow(tMeanG - lMeanG, 2) +
+              Math.pow(tMeanB - lMeanB, 2)
+            );
+
+            const gradDiff = Math.abs(tGrad - lGrad) / (Math.max(tGrad, lGrad, 1));
+
+            // Block is considered a match only if color distribution AND edge structure match closely
+            if (colorDist < 28 && gradDiff < 0.35) {
+              matchingBlocks++;
+            }
+
+            const blockScore = Math.max(0, 100 - (colorDist * 1.5 + gradDiff * 50));
+            totalBlockCorrelation += blockScore;
+          }
         }
-        const avgDiff = totalDiff / pixelCount;
-        const similarity = Math.max(0, 100 - (avgDiff / 2.55));
-        resolve(similarity);
+
+        const avgBlockScore = totalBlockCorrelation / (numBlocks * numBlocks);
+        const blockMatchRatio = (matchingBlocks / (numBlocks * numBlocks)) * 100;
+
+        // Weighted final facial similarity score
+        const finalSimilarity = (avgBlockScore * 0.4) + (blockMatchRatio * 0.6);
+        resolve(finalSimilarity);
       } catch (e) {
         resolve(0);
       }
@@ -244,7 +289,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
         setTimeout(async () => {
           let bestMatchUser: string | null = null;
           let highestScore = 0;
-          const SIMILARITY_THRESHOLD = 50; // Required similarity score
+          const SIMILARITY_THRESHOLD = 75; // Strict multi-block feature correlation threshold
 
           if (videoRef.current) {
             const video = videoRef.current;
@@ -332,12 +377,12 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
     const existing = getSavedProfile(accountName);
     const profileToSave = existing.name ? existing : {
       name: accountName,
-      skill: 'Traditional Cooking & Crafts',
-      experience_years: 30,
-      location: 'Chennai',
+      skill: null,
+      experience_years: null,
+      location: null,
       language: 'English',
-      services: ['Online Lessons', 'Handmade Products'],
-      availability: `${accountName.toLowerCase().replace(/\s+/g, '')}@creators.silverhands.in`
+      services: [],
+      availability: null
     };
     saveProfileState(profileToSave, accountName);
     onSuccess(accountName);

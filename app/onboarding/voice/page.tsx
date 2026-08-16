@@ -164,12 +164,12 @@ export default function CreateAccountOnboardingPage() {
     // Save Profile State
     saveProfileState({
       name: userName,
-      skill: skill,
-      experience_years: 30,
-      location: 'Chennai',
+      skill: skill || null,
+      experience_years: null,
+      location: null,
       language: 'English',
-      services: ['Online Classes', 'Handmade Products'],
-      availability: `${userName.toLowerCase().replace(/\s+/g, '')}@creators.silverhands.in`
+      services: [],
+      availability: null
     }, userName);
 
     // Save Voice PIN

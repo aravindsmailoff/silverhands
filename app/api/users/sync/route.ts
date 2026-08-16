@@ -20,11 +20,14 @@ export async function POST(req: Request) {
 
     const id = userName.trim().toLowerCase().replace(/\s+/g, '_');
     const name = userName.trim();
-    const skill = profile?.skill || null;
-    const experience = profile?.experience_years || 0;
+    const skillsList = Array.isArray(profile?.skills) && profile.skills.length > 0 ? profile.skills : [];
+    const skill = skillsList.length > 0 ? skillsList.map((s: any) => s.name).join(', ') : (profile?.skill || null);
+    const experience = skillsList.length > 0 && skillsList[0]?.experience_years !== null && skillsList[0]?.experience_years !== undefined
+      ? Number(skillsList[0].experience_years)
+      : (profile?.experience_years ?? 0);
     const location = profile?.location || null;
     const language = profile?.language || 'English';
-    const services = JSON.stringify(profile?.services || []);
+    const services = JSON.stringify(skillsList.length > 0 ? skillsList : (profile?.services || []));
     const availability = profile?.availability || null;
     const facePhoto = photoUrl || null;
     const pin = voicePin || null;

@@ -278,19 +278,18 @@ export default function CreateVideoPage() {
   };
 
   const generateAI = async (txt?: string) => {
-    // Use passed text → live transcript → topic → generic fallback
+    // Use passed text → live transcript → topic
     const src = (txt || transcriptRef.current || topic || '').trim();
-    const fallback = src || 'Senior creator video lesson';
+    if (!src) {
+      // User did not speak or enter a topic: leave description blank
+      setDescription('');
+      return;
+    }
 
-    // Immediately show a default so the field is never blank
     const creatorName = getSavedProfile()?.name || 'Creator';
-    setDescription(`In this video, ${creatorName} shares their expertise: "${fallback}".`);
-
-    if (!src) return;   // nothing to send to AI; default is already set
-
     setIsGenAI(true);
     try {
-      const res  = await fetch('/api/ai/generate-listing', {
+      const res = await fetch('/api/ai/generate-listing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: 'video_description', transcript: src, creatorName }),
@@ -299,10 +298,14 @@ export default function CreateVideoPage() {
       if (data.success && data.description) {
         setDescription(data.description);
         if (data.title) setTopic(data.title);
+      } else {
+        setDescription(`In this video lesson, ${creatorName} demonstrates: "${src}".`);
       }
-      // If AI fails, the default set above remains
-    } catch { /* keep the default already set */ }
-    finally { setIsGenAI(false); }
+    } catch {
+      setDescription(`In this video lesson, ${creatorName} demonstrates: "${src}".`);
+    } finally {
+      setIsGenAI(false);
+    }
   };
 
   const toggleTopic = () => {
@@ -535,14 +538,16 @@ export default function CreateVideoPage() {
               ) : (
                 <>
                   <textarea
-                    value={description || transcript || `In this video, ${getSavedProfile()?.name || 'Creator'} shares their expertise.`}
+                    value={description || transcript || ''}
                     onChange={e => setDescription(e.target.value)}
+                    placeholder="Describe your lesson topic here, or speak during video recording to generate automatically..."
                     rows={4}
                     className="w-full p-4 bg-[#FAF9F6] border-2 border-[#E3E2E0] rounded-xl text-base font-semibold outline-none focus:border-[#031635] resize-none"
                   />
                   <button
                     onClick={() => generateAI()}
-                    className="w-full py-3 bg-[#031635] hover:bg-[#1a2b4b] text-[#FDBC13] text-base font-bold rounded-xl flex items-center justify-center gap-2 transition"
+                    disabled={!topic && !transcript && !description}
+                    className="w-full py-3 bg-[#031635] hover:bg-[#1a2b4b] disabled:opacity-50 text-[#FDBC13] text-base font-bold rounded-xl flex items-center justify-center gap-2 transition"
                   >
                     <Sparkles className="w-5 h-5" /> Rewrite with AI
                   </button>

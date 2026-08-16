@@ -1,10 +1,18 @@
 import { voiceService } from './voice';
 
+export interface ProfileSkill {
+  name: string;
+  type?: 'primary' | 'additional';
+  experience_years: number | null;
+}
+
 export interface ProfileState {
   name: string | null;
-  skill: string | null;
-  experience_years: number | null;
+  skills?: ProfileSkill[];
+  skill?: string | null; // Backwards-compatible primary skill name
+  experience_years?: number | null; // Backwards-compatible primary skill experience
   location: string | null;
+  structured_location?: any;
   language: string | null;
   services: string[];
   availability: string | null;
@@ -15,16 +23,30 @@ export interface ConversationTurn {
   text: string;
 }
 
+export type ConversationState =
+  | 'ASKING_NAME'
+  | 'ASKING_SKILL'
+  | 'ASKING_EXPERIENCE'
+  | 'ASKING_LOCATION'
+  | 'CONFIRMING_PROFILE'
+  | 'ASKING_CORRECTION'
+  | 'CORRECTING_FIELD'
+  | 'COMPLETED';
+
 export interface AgentTurnResponse {
   extracted_data: Partial<ProfileState>;
   next_question: string;
   updated_profile: ProfileState;
   completed: boolean;
   confirmation_mode: boolean;
+  conversation_state: ConversationState;
+  target_field?: string | null;
+  active_skill_index?: number;
 }
 
 export const INITIAL_PROFILE_STATE: ProfileState = {
   name: null,
+  skills: [],
   skill: null,
   experience_years: null,
   location: null,
@@ -223,7 +245,7 @@ export function getSavedProfile(targetUserName?: string): ProfileState {
     return {
       name: p.name || name,
       skill: p.skill || null,
-      experience_years: p.experience_years || null,
+      experience_years: (p.experience_years !== undefined && p.experience_years !== null) ? Number(p.experience_years) : null,
       location: p.location || null,
       language: p.language || null,
       services: p.services || [],
@@ -374,21 +396,46 @@ export function registerPasswordData(password: string, targetUserName?: string):
 }
 
 export class VoiceAgentEngine {
-  private currentProfile: ProfileState;
+  private candidateProfile: ProfileState;
+  private confirmedProfile: ProfileState | null;
+  private conversationState: ConversationState;
+  private currentQuestion: string;
+  private targetField: string | null;
+  private activeSkillIndex: number;
   private conversationHistory: ConversationTurn[];
   private isProcessing: boolean;
 
   constructor() {
-    this.currentProfile = getSavedProfile();
+    this.candidateProfile = { ...INITIAL_PROFILE_STATE };
+    this.confirmedProfile = getSavedProfile();
+    this.conversationState = 'ASKING_NAME';
+    this.currentQuestion = "Welcome to SilverHands! I will help you create your profile using voice. What is your name?";
+    this.targetField = null;
+    this.activeSkillIndex = 0;
     this.conversationHistory = [];
     this.isProcessing = false;
   }
 
   public getProfileState(): ProfileState {
-    return this.currentProfile;
+    return this.candidateProfile;
   }
 
-  public getConversationHistory(): ConversationTurn[];
+  public getCandidateProfile(): ProfileState {
+    return this.candidateProfile;
+  }
+
+  public getConfirmedProfile(): ProfileState | null {
+    return this.confirmedProfile;
+  }
+
+  public getConversationState(): ConversationState {
+    return this.conversationState;
+  }
+
+  public getCurrentQuestion(): string {
+    return this.currentQuestion;
+  }
+
   public getConversationHistory(): ConversationTurn[] {
     return this.conversationHistory;
   }
@@ -398,12 +445,19 @@ export class VoiceAgentEngine {
   }
 
   public resetState(): void {
-    this.currentProfile = { ...INITIAL_PROFILE_STATE };
+    this.candidateProfile = { ...INITIAL_PROFILE_STATE };
+    this.confirmedProfile = null;
+    this.conversationState = 'ASKING_NAME';
+    this.currentQuestion = "Welcome to SilverHands! I will help you create your profile using voice. What is your name?";
+    this.targetField = null;
+    this.activeSkillIndex = 0;
     this.conversationHistory = [];
     this.isProcessing = false;
   }
 
   public speakQuestion(text: string, onEnd?: () => void): void {
+    this.currentQuestion = text;
+    this.conversationHistory.push({ role: 'assistant', text });
     voiceService.speak(text, 'en-IN', onEnd);
   }
 
@@ -420,9 +474,14 @@ export class VoiceAgentEngine {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          current_profile: this.currentProfile,
+          conversation_state: this.conversationState,
+          current_question: this.currentQuestion,
+          confirmed_profile: this.confirmedProfile,
+          candidate_profile: this.candidateProfile,
           conversation_history: this.conversationHistory,
-          user_speech: userSpeech
+          user_speech: userSpeech,
+          target_field: this.targetField,
+          active_skill_index: this.activeSkillIndex
         })
       });
 
@@ -431,7 +490,16 @@ export class VoiceAgentEngine {
 
       if (data.success && data.turn) {
         const turn: AgentTurnResponse = data.turn;
-        this.currentProfile = turn.updated_profile;
+        this.candidateProfile = turn.updated_profile;
+        this.conversationState = turn.conversation_state;
+        this.currentQuestion = turn.next_question;
+        this.targetField = turn.target_field || null;
+        this.activeSkillIndex = turn.active_skill_index !== undefined ? turn.active_skill_index : 0;
+
+        if (turn.completed) {
+          this.confirmedProfile = { ...turn.updated_profile };
+        }
+
         return turn;
       } else {
         throw new Error(data.error || 'Failed to process speech turn via AI engine');

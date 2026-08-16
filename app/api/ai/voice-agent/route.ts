@@ -1,10 +1,18 @@
 import { NextResponse } from 'next/server';
-import { ProfileState } from '@/lib/voice-agent';
+import { ProfileState, ProfileSkill, ConversationState, AgentTurnResponse } from '@/lib/voice-agent';
+import { validateAndParseLocation } from '@/lib/location-validator';
+import {
+  normalizeName,
+  normalizeSkill,
+  normalizeSkillsList,
+  normalizeExperience,
+  isConfirmationResponse,
+  parseCorrectionIntent
+} from '@/lib/semantic-extractor';
 
 const ollamaHost = process.env.OLLAMA_HOST || 'http://localhost:11434';
 const preferredOllamaModel = process.env.OLLAMA_MODEL || 'qwen3:4b';
 
-// Candidate models to attempt sequentially in local Ollama instance
 const OLLAMA_MODELS_TO_TRY = Array.from(new Set([
   preferredOllamaModel,
   'qwen3:4b',
@@ -17,10 +25,22 @@ const OLLAMA_MODELS_TO_TRY = Array.from(new Set([
 
 export async function POST(req: Request) {
   try {
-    const { current_profile, conversation_history, user_speech } = await req.json();
+    const {
+      conversation_state,
+      current_question,
+      confirmed_profile,
+      candidate_profile,
+      conversation_history,
+      user_speech,
+      target_field,
+      active_skill_index
+    } = await req.json();
 
-    const current: ProfileState = current_profile || {
+    const state: ConversationState = conversation_state || 'ASKING_NAME';
+    const activeIndex: number = typeof active_skill_index === 'number' ? active_skill_index : 0;
+    const candidate: ProfileState = candidate_profile || {
       name: null,
+      skills: [],
       skill: null,
       experience_years: null,
       location: null,
@@ -29,120 +49,103 @@ export async function POST(req: Request) {
       availability: null
     };
 
+    if (!Array.isArray(candidate.skills)) {
+      candidate.skills = candidate.skill
+        ? [{ name: candidate.skill, experience_years: candidate.experience_years ?? null, type: 'primary' }]
+        : [];
+    }
+
     const speechText: string = (user_speech || '').trim();
 
-    const prompt = `
-You are the SilverHands onboarding AI assistant for senior citizens in India.
-Your goal is to build a user profile by having a natural, warm, one-question-at-a-time voice conversation in 100% clean English.
+    if (!speechText) {
+      return NextResponse.json({
+        success: true,
+        provider: 'fallback-empty',
+        turn: {
+          extracted_data: {},
+          next_question: current_question || "Welcome to SilverHands! I will help you create your profile using voice. What is your name?",
+          updated_profile: candidate,
+          completed: false,
+          confirmation_mode: state === 'CONFIRMING_PROFILE',
+          conversation_state: state,
+          target_field: target_field || null,
+          active_skill_index: activeIndex
+        }
+      });
+    }
 
-CURRENT PROFILE STATE:
-${JSON.stringify(current, null, 2)}
+    // Step 1: Call Gemini / Ollama for semantic interpretation
+    let llmResult: any = null;
+    const geminiApiKey = process.env.GEMINI_API_KEY;
 
-USER JUST SAID:
-"${speechText}"
-
-CONVERSATION HISTORY:
-${JSON.stringify(conversation_history || [], null, 2)}
-
-YOUR INSTRUCTIONS:
-1. Extract any profile information from the user's speech:
-   - "name": full or first name (string)
-   - "skill": main skill, craft, or teaching topic (string)
-   - "experience_years": number of years of experience (number or null)
-   - "location": city or neighborhood in India (string)
-   - "language": spoken language (string)
-   - "services": array of strings (e.g. ["Online Classes", "Recipe Videos", "Handmade Items"])
-   - "availability": available days or times (string)
-
-2. Determine the NEXT single question to ask:
-   - Ask only ONE question at a time.
-   - Be extremely polite, respectful, clear, and use ONLY 100% English (e.g., "Welcome to SilverHands", "Thank you"). Do not use any non-English words.
-   - Do NOT ask for information that is already collected in the CURRENT PROFILE STATE.
-   - Priority order of questions:
-     1) Name (if missing)
-     2) Skill/What they offer (if missing)
-     3) Experience years (if missing)
-     4) Location/City (if missing)
-     5) Confirmation ("I have summarized your profile... Is everything correct?")
-
-3. If the user is answering the final confirmation ("Is everything correct?") and says "Yes", "Correct", "Looks good", or "Sure", mark "completed": true.
-
-RETURN ONLY VALID JSON WITH EXACTLY THIS FORMAT:
-{
-  "extracted_data": {
-    "name": string | null,
-    "skill": string | null,
-    "experience_years": number | null,
-    "location": string | null,
-    "language": string | null,
-    "services": string[],
-    "availability": string | null
-  },
-  "next_question": "Text of the single next question for the AI to speak in 100% clean English",
-  "confirmation_mode": boolean,
-  "completed": boolean
-}
-`;
-
-    // 1. Try Local Ollama Engine first with sub-second response optimization
-    const candidateModels = Array.from(new Set(['qwen3:4b', 'llama3.2:latest', ...OLLAMA_MODELS_TO_TRY]));
-
-    for (const modelCandidate of candidateModels) {
+    if (geminiApiKey) {
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2500);
-
-        const ollamaRes = await fetch(`${ollamaHost}/api/generate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: controller.signal,
-          body: JSON.stringify({
-            model: modelCandidate,
-            prompt: prompt,
-            stream: false,
-            format: 'json',
-            options: {
-              num_predict: 180,
-              temperature: 0.1,
-              top_p: 0.8,
-              num_ctx: 1024
-            }
-          })
-        });
-        clearTimeout(timeoutId);
-
-        if (ollamaRes.ok) {
-          const ollamaData = await ollamaRes.json();
-          const jsonMatch = (ollamaData.response || '').match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
-            const updatedProfile: ProfileState = mergeProfileState(current, parsed.extracted_data);
-            console.log(`[VoiceAgent] Successfully processed turn via Local Ollama model: ${modelCandidate}`);
-            return NextResponse.json({
-              success: true,
-              provider: `ollama-${modelCandidate}`,
-              model: modelCandidate,
-              turn: {
-                extracted_data: parsed.extracted_data || {},
-                next_question: parsed.next_question || "Could you tell me more about your skills?",
-                updated_profile: updatedProfile,
-                completed: Boolean(parsed.completed),
-                confirmation_mode: Boolean(parsed.confirmation_mode)
-              }
-            });
+        const prompt = buildLlmPrompt(state, current_question, confirmed_profile, candidate, speechText, activeIndex, conversation_history);
+        const geminiRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [{ text: prompt }] }],
+              generationConfig: { responseMimeType: 'application/json', temperature: 0.1 }
+            })
+          }
+        );
+        if (geminiRes.ok) {
+          const gemData = await geminiRes.json();
+          const textOut = gemData.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (textOut) {
+            llmResult = JSON.parse(textOut);
+            console.log('[VoiceAgent] Gemini multi-skill semantic output:', llmResult);
           }
         }
-      } catch (ollamaErr) {
-        // Fast timeout - proceed immediately to next or fallback
+      } catch (geminiErr) {
+        console.warn('[VoiceAgent] Gemini attempt notice:', geminiErr);
       }
     }
 
-    // 2. Deterministic Rule-Based Fallback Parser
-    const fallbackTurn = processFallbackTurn(current, speechText);
+    if (!llmResult) {
+      const prompt = buildLlmPrompt(state, current_question, confirmed_profile, candidate, speechText, activeIndex, conversation_history);
+      for (const modelCandidate of OLLAMA_MODELS_TO_TRY) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 2000);
+
+          const ollamaRes = await fetch(`${ollamaHost}/api/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            body: JSON.stringify({
+              model: modelCandidate,
+              prompt,
+              stream: false,
+              format: 'json',
+              options: { num_predict: 250, temperature: 0.1 }
+            })
+          });
+          clearTimeout(timeoutId);
+
+          if (ollamaRes.ok) {
+            const ollamaData = await ollamaRes.json();
+            const jsonMatch = (ollamaData.response || '').match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              llmResult = JSON.parse(jsonMatch[0]);
+              console.log(`[VoiceAgent] Extracted via Ollama (${modelCandidate}):`, llmResult);
+              break;
+            }
+          }
+        } catch (_) {}
+      }
+    }
+
+    // Step 2: Pass through Authoritative Stateful Conversation Engine with multi-skill question queue
+    const turn: AgentTurnResponse = processStatefulTurn(state, current_question, candidate, speechText, target_field, activeIndex, llmResult);
+
     return NextResponse.json({
       success: true,
-      provider: 'rule-engine',
-      turn: fallbackTurn
+      provider: llmResult ? 'hybrid-llm-validated' : 'deterministic-state-engine',
+      turn
     });
 
   } catch (err) {
@@ -151,73 +154,563 @@ RETURN ONLY VALID JSON WITH EXACTLY THIS FORMAT:
   }
 }
 
-function mergeProfileState(current: ProfileState, extracted: Partial<ProfileState>): ProfileState {
-  const merged = { ...current };
+function buildLlmPrompt(
+  conversationState: ConversationState,
+  currentQuestion: string,
+  confirmedProfile: ProfileState | null,
+  candidateProfile: ProfileState,
+  speechText: string,
+  activeSkillIndex: number,
+  conversationHistory: any[]
+): string {
+  return `
+You are the semantic understanding layer of a voice-based profile onboarding system for Indian elder creators.
+Your job is NOT to copy the speech transcript verbatim.
+Understand what the user means and extract all structured entities.
 
-  if (extracted.name) merged.name = extracted.name;
-  if (extracted.skill) merged.skill = extracted.skill;
-  if (extracted.experience_years !== undefined && extracted.experience_years !== null) {
-    merged.experience_years = Number(extracted.experience_years);
-  }
-  if (extracted.location) merged.location = extracted.location;
-  if (extracted.language) merged.language = extracted.language;
-  if (extracted.availability) merged.availability = extracted.availability;
+CURRENT CONVERSATION STATE:
+${conversationState}
 
-  if (Array.isArray(extracted.services) && extracted.services.length > 0) {
-    const set = new Set([...merged.services, ...extracted.services]);
-    merged.services = Array.from(set);
-  }
+CURRENT ACTIVE SKILL INDEX:
+${activeSkillIndex}
 
-  return merged;
+CURRENT QUESTION:
+"${currentQuestion || ''}"
+
+CURRENT CANDIDATE PROFILE:
+${JSON.stringify(candidateProfile, null, 2)}
+
+LATEST USER TRANSCRIPT:
+"${speechText}"
+
+CRITICAL EXTRACTION RULES:
+1. MULTIPLE SKILLS: The user may provide one or multiple skills in a single answer (e.g., "I do tailoring and I also teach mathematics", "I know tailoring, embroidery and blouse stitching", "I play badminton and I coach children").
+   - Extract EVERY distinct skill, craft, profession, service, or work activity mentioned into the "skills" array.
+   - NEVER stop after identifying the first skill.
+   - Do not merge unrelated skills into one string.
+   - Normalize each skill independently in Title Case (e.g. "Tailoring & Stitching", "Mathematics Teaching", "Badminton", "Embroidery & Handcraft", "Traditional Cooking").
+   - If user indicates primary vs additional (e.g. "I mainly do tailoring, but also embroidery"), set type to "primary" or "additional".
+   - If the user provides experience upfront for any skill (e.g., "tailoring for 10 years and teaching maths for 4 years", "just started teaching maths" -> 0), extract experience_years for that specific skill in the array.
+2. PHONETIC ERROR TOLERANCE: Normalize phonetic ASR slips ("black mitten" / "shuttle" -> "Badminton", "tayloring" -> "Tailoring & Stitching", "maths" -> "Mathematics Teaching").
+3. NUMERIC ACCURACY: Preserve numeric zero as 0 ("zero", "none", "beginner", "just started"). NEVER default to 30 or invent numbers!
+4. LOCATION: Distinguish Indian states from cities/localities. Reject non-geographic entities like "Mars" or "Space".
+5. CONFIRMATION & CORRECTIONS:
+   - "Yes" -> confirm_yes.
+   - Bare "No" during confirmation -> confirm_no / ask_correction.
+   - Inline correction (e.g. "No, my experience in tailoring is 5 years", "No, my skill is Pottery") -> correction with target field and updated values.
+
+RETURN STRICT JSON ONLY:
+{
+  "intent": "provide_name" | "provide_skills" | "provide_experience" | "provide_location" | "confirm_yes" | "confirm_no" | "correction",
+  "name": string | null,
+  "skills": [
+    {
+      "name": "Tailoring",
+      "type": "primary" | "additional",
+      "experience_years": 10 | null
+    }
+  ],
+  "experience_years": number | null,
+  "location": string | null,
+  "correction_target": "name" | "skill" | "experience" | "location" | null
+}
+`;
 }
 
-function processFallbackTurn(current: ProfileState, speech: string) {
-  const lower = speech.toLowerCase();
-  const extracted: Partial<ProfileState> = {};
-  let completed = false;
-  let confirmationMode = false;
-  let nextQuestion = "";
+/**
+ * Authoritative Stateful Turn Processor with Multi-Skill Question Queue
+ */
+function processStatefulTurn(
+  state: ConversationState,
+  currentQuestion: string,
+  candidate: ProfileState,
+  speech: string,
+  targetField: string | null,
+  activeSkillIndex: number,
+  llmResult: any
+): AgentTurnResponse {
+  const updatedCandidate: ProfileState & { skills: ProfileSkill[] } = {
+    ...candidate,
+    skills: Array.isArray(candidate.skills) ? [...candidate.skills] : []
+  };
+  const extractedData: Partial<ProfileState> = {};
 
-  // Step 1: Extract details based on speech content
-  if (!current.name) {
-    if (lower.includes('name is') || lower.includes('i am') || lower.length > 2) {
-      const cleanedName = speech.replace(/my name is|i am|iam/gi, '').trim();
-      extracted.name = cleanedName.length > 0 ? cleanedName : "there";
+  // ── 1. CONFIRMING_PROFILE STATE ──
+  if (state === 'CONFIRMING_PROFILE') {
+    const conf = isConfirmationResponse(speech);
+    if (conf.isConfirmed || llmResult?.intent === 'confirm_yes') {
+      return {
+        extracted_data: {},
+        next_question: `Wonderful! Your profile has been confirmed and saved successfully, ${candidate.name}!`,
+        updated_profile: updatedCandidate,
+        completed: true,
+        confirmation_mode: false,
+        conversation_state: 'COMPLETED',
+        active_skill_index: 0
+      };
     }
-  } else if (!current.skill) {
-    extracted.skill = speech;
-    extracted.services = ["Online Classes", "Recipe Videos", "Homemade Products"];
-  } else if (current.experience_years === null) {
-    const match = speech.match(/\d+/);
-    extracted.experience_years = match ? parseInt(match[0], 10) : 30;
-  } else if (!current.location) {
-    extracted.location = speech.length > 2 ? speech : "New Delhi";
+
+    // Check for inline corrections (e.g. "No, my experience is actually 5 years", "No, I teach mathematics")
+    const correction = parseCorrectionIntent(speech);
+    if (correction.intent === 'inline_correction' && correction.targetField && correction.extractedValue !== undefined) {
+      applyFieldUpdate(updatedCandidate, extractedData, correction.targetField, correction.extractedValue);
+      return {
+        extracted_data: extractedData,
+        next_question: formulateConfirmationQuestion(updatedCandidate, `Thanks! I've updated your ${formatFieldLabel(correction.targetField)}. `),
+        updated_profile: updatedCandidate,
+        completed: false,
+        confirmation_mode: true,
+        conversation_state: 'CONFIRMING_PROFILE',
+        active_skill_index: 0
+      };
+    }
+
+    // Check if user specifically named a field: "My skill", "The location", "My experience"
+    if (correction.intent === 'field_targeted' && correction.targetField) {
+      return {
+        extracted_data: {},
+        next_question: getFieldPrompt(correction.targetField, "Got it. "),
+        updated_profile: updatedCandidate,
+        completed: false,
+        confirmation_mode: false,
+        conversation_state: 'CORRECTING_FIELD',
+        target_field: correction.targetField,
+        active_skill_index: 0
+      };
+    }
+
+    // User said bare NO: "No", "Incorrect", "That's wrong"
+    if (conf.isRejected || llmResult?.intent === 'confirm_no' || correction.intent === 'bare_rejection') {
+      return {
+        extracted_data: {},
+        next_question: "No problem. What would you like to correct?",
+        updated_profile: updatedCandidate,
+        completed: false,
+        confirmation_mode: false,
+        conversation_state: 'ASKING_CORRECTION',
+        active_skill_index: 0
+      };
+    }
   }
 
-  const updated = mergeProfileState(current, extracted);
+  // ── 2. ASKING_CORRECTION STATE ──
+  if (state === 'ASKING_CORRECTION') {
+    const correction = parseCorrectionIntent(speech);
 
-  // Step 2: Determine next question in 100% clean English
-  if (!updated.name) {
-    nextQuestion = "Welcome to SilverHands! I will help you create your profile using voice. What is your name?";
-  } else if (!updated.skill) {
-    nextQuestion = `Thank you, ${updated.name}. What is something you are very good at?`;
-  } else if (updated.experience_years === null) {
-    nextQuestion = `That sounds wonderful! How many years of experience do you have in ${updated.skill}?`;
-  } else if (!updated.location) {
-    nextQuestion = `Great! Which city or area in India do you live in?`;
-  } else if (lower.includes('yes') || lower.includes('correct') || lower.includes('good') || lower.includes('ok')) {
-    completed = true;
-    nextQuestion = `Wonderful! Your profile has been created successfully, ${updated.name}!`;
-  } else {
-    confirmationMode = true;
-    nextQuestion = `${updated.name}, I have summarized your profile: ${updated.skill} expert with ${updated.experience_years} years experience in ${updated.location}. Is everything correct?`;
+    if (correction.intent === 'field_targeted' && correction.targetField) {
+      return {
+        extracted_data: {},
+        next_question: getFieldPrompt(correction.targetField, "Got it. "),
+        updated_profile: updatedCandidate,
+        completed: false,
+        confirmation_mode: false,
+        conversation_state: 'CORRECTING_FIELD',
+        target_field: correction.targetField,
+        active_skill_index: 0
+      };
+    }
+
+    if (correction.intent === 'inline_correction' && correction.targetField && correction.extractedValue !== undefined) {
+      applyFieldUpdate(updatedCandidate, extractedData, correction.targetField, correction.extractedValue);
+      return {
+        extracted_data: extractedData,
+        next_question: formulateConfirmationQuestion(updatedCandidate, `Thanks! I've updated your ${formatFieldLabel(correction.targetField)}. `),
+        updated_profile: updatedCandidate,
+        completed: false,
+        confirmation_mode: true,
+        conversation_state: 'CONFIRMING_PROFILE',
+        active_skill_index: 0
+      };
+    }
+
+    return {
+      extracted_data: {},
+      next_question: "Which detail would you like to change? Your name, skills, experience, or location?",
+      updated_profile: updatedCandidate,
+      completed: false,
+      confirmation_mode: false,
+      conversation_state: 'ASKING_CORRECTION',
+      active_skill_index: 0
+    };
   }
 
+  // ── 3. CORRECTING_FIELD STATE ──
+  if (state === 'CORRECTING_FIELD' && targetField) {
+    const f = targetField as keyof ProfileState;
+    const value = extractFieldValue(f, speech, llmResult);
+
+    if (value !== null && value !== undefined) {
+      applyFieldUpdate(updatedCandidate, extractedData, f, value);
+      return {
+        extracted_data: extractedData,
+        next_question: formulateConfirmationQuestion(updatedCandidate, `Thanks! I've updated your ${formatFieldLabel(f)}. `),
+        updated_profile: updatedCandidate,
+        completed: false,
+        confirmation_mode: true,
+        conversation_state: 'CONFIRMING_PROFILE',
+        target_field: null,
+        active_skill_index: 0
+      };
+    } else {
+      return {
+        extracted_data: {},
+        next_question: getFieldPrompt(f, "I didn't quite catch that. "),
+        updated_profile: updatedCandidate,
+        completed: false,
+        confirmation_mode: false,
+        conversation_state: 'CORRECTING_FIELD',
+        target_field: f,
+        active_skill_index: 0
+      };
+    }
+  }
+
+  // ── 4. LINEAR ONBOARDING STATES ──
+
+  // ASKING_NAME
+  if (state === 'ASKING_NAME' || !candidate.name) {
+    const rawNameCandidate = llmResult?.name || (llmResult?.field === 'name' ? llmResult.value : speech);
+    const normalized = normalizeName(rawNameCandidate).name || normalizeName(speech).name;
+
+    if (normalized) {
+      updatedCandidate.name = normalized;
+      extractedData.name = normalized;
+
+      return {
+        extracted_data: extractedData,
+        next_question: `Thank you, ${normalized}. What is your primary skill, craft, or work?`,
+        updated_profile: updatedCandidate,
+        completed: false,
+        confirmation_mode: false,
+        conversation_state: 'ASKING_SKILL',
+        active_skill_index: 0
+      };
+    } else {
+      return {
+        extracted_data: {},
+        next_question: "Welcome to SilverHands! I will help you create your profile using voice. What is your name?",
+        updated_profile: updatedCandidate,
+        completed: false,
+        confirmation_mode: false,
+        conversation_state: 'ASKING_NAME',
+        active_skill_index: 0
+      };
+    }
+  }
+
+  // ASKING_SKILL (Supports multiple skills & inline experience)
+  if (state === 'ASKING_SKILL' || updatedCandidate.skills.length === 0) {
+    let skillsExtracted: ProfileSkill[] = [];
+
+    if (Array.isArray(llmResult?.skills) && llmResult.skills.length > 0) {
+      skillsExtracted = llmResult.skills.map((s: any, idx: number) => {
+        const norm = normalizeSkill(s.name || '').normalized || (s.name ? String(s.name).trim() : 'Skill');
+        const exp = typeof s.experience_years === 'number' ? s.experience_years : null;
+        return {
+          name: norm,
+          type: s.type === 'primary' || idx === 0 ? 'primary' : 'additional',
+          experience_years: exp
+        };
+      });
+    }
+
+    if (skillsExtracted.length === 0) {
+      skillsExtracted = normalizeSkillsList(speech);
+    }
+
+    if (skillsExtracted.length > 0) {
+      updatedCandidate.skills = skillsExtracted;
+      updatedCandidate.skill = skillsExtracted[0].name;
+      updatedCandidate.experience_years = skillsExtracted[0].experience_years;
+      extractedData.skills = skillsExtracted;
+      extractedData.skill = skillsExtracted[0].name;
+      extractedData.experience_years = skillsExtracted[0].experience_years;
+
+      // Check if all skills already have experience upfront
+      const firstMissingIndex = skillsExtracted.findIndex(s => s.experience_years === null);
+
+      if (firstMissingIndex === -1) {
+        // Experience was already provided for all skills upfront! Skip directly to location.
+        const skillNames = skillsExtracted.map(s => s.name).join(' and ');
+        return {
+          extracted_data: extractedData,
+          next_question: `Great! I have recorded your experience in ${skillNames}. And which city or locality in India do you live or work in?`,
+          updated_profile: updatedCandidate,
+          completed: false,
+          confirmation_mode: false,
+          conversation_state: 'ASKING_LOCATION',
+          active_skill_index: 0
+        };
+      }
+
+      // If multiple skills were mentioned, acknowledge all of them before asking for experience in skill #1
+      if (skillsExtracted.length > 1) {
+        const skillNames = skillsExtracted.map(s => s.name).join(' and ');
+        return {
+          extracted_data: extractedData,
+          next_question: `Great. I understood ${skillsExtracted.length} skills: ${skillNames}. How many years of experience do you have in ${skillsExtracted[firstMissingIndex].name}?`,
+          updated_profile: updatedCandidate,
+          completed: false,
+          confirmation_mode: false,
+          conversation_state: 'ASKING_EXPERIENCE',
+          active_skill_index: firstMissingIndex
+        };
+      } else {
+        return {
+          extracted_data: extractedData,
+          next_question: `That sounds wonderful! How many years of experience do you have in ${skillsExtracted[0].name}?`,
+          updated_profile: updatedCandidate,
+          completed: false,
+          confirmation_mode: false,
+          conversation_state: 'ASKING_EXPERIENCE',
+          active_skill_index: 0
+        };
+      }
+    } else {
+      return {
+        extracted_data: {},
+        next_question: `What is your primary skill, craft, or work that you would like to offer?`,
+        updated_profile: updatedCandidate,
+        completed: false,
+        confirmation_mode: false,
+        conversation_state: 'ASKING_SKILL',
+        active_skill_index: 0
+      };
+    }
+  }
+
+  // ASKING_EXPERIENCE (Iterates through skills queue)
+  if (state === 'ASKING_EXPERIENCE') {
+    const currentIdx = activeSkillIndex < updatedCandidate.skills.length ? activeSkillIndex : 0;
+    const currentSkill = updatedCandidate.skills[currentIdx] || { name: 'your craft', experience_years: null };
+
+    let expNum: number | null = null;
+    if (typeof llmResult?.experience_years === 'number') {
+      expNum = llmResult.experience_years;
+    } else if (llmResult?.field === 'experience_years' && llmResult.value !== null && !isNaN(Number(llmResult.value))) {
+      expNum = Number(llmResult.value);
+    } else {
+      const expRes = normalizeExperience(speech);
+      if (expRes.experience_years !== null) {
+        expNum = expRes.experience_years;
+      }
+    }
+
+    if (expNum !== null && expNum >= 0) {
+      if (updatedCandidate.skills[currentIdx]) {
+        updatedCandidate.skills[currentIdx].experience_years = expNum;
+      }
+      if (currentIdx === 0) {
+        updatedCandidate.experience_years = expNum;
+      }
+      extractedData.skills = updatedCandidate.skills;
+      extractedData.experience_years = updatedCandidate.skills[0]?.experience_years ?? expNum;
+
+      // Check if there are more skills needing experience in the queue
+      const nextMissingIndex = updatedCandidate.skills.findIndex((s, idx) => idx > currentIdx && s.experience_years === null);
+
+      if (nextMissingIndex !== -1) {
+        const nextSkill = updatedCandidate.skills[nextMissingIndex];
+        return {
+          extracted_data: extractedData,
+          next_question: `And how many years of experience do you have in ${nextSkill.name}?`,
+          updated_profile: updatedCandidate,
+          completed: false,
+          confirmation_mode: false,
+          conversation_state: 'ASKING_EXPERIENCE',
+          active_skill_index: nextMissingIndex
+        };
+      } else {
+        // All skills have experience recorded! Advance to location
+        return {
+          extracted_data: extractedData,
+          next_question: `Great. And which city or locality in India do you live or work in?`,
+          updated_profile: updatedCandidate,
+          completed: false,
+          confirmation_mode: false,
+          conversation_state: 'ASKING_LOCATION',
+          active_skill_index: 0
+        };
+      }
+    } else {
+      return {
+        extracted_data: {},
+        next_question: `Could you tell me how many years of experience you have in ${currentSkill.name}, for example, zero, three, or five years?`,
+        updated_profile: updatedCandidate,
+        completed: false,
+        confirmation_mode: false,
+        conversation_state: 'ASKING_EXPERIENCE',
+        active_skill_index: currentIdx
+      };
+    }
+  }
+
+  // ASKING_LOCATION
+  if (state === 'ASKING_LOCATION' || !candidate.location) {
+    const rawLocCandidate = llmResult?.location || (llmResult?.field === 'location' ? (typeof llmResult.value === 'string' ? llmResult.value : null) : speech);
+    const locRes = validateAndParseLocation(rawLocCandidate || speech);
+
+    if (locRes.needs_clarification && locRes.clarification_question) {
+      return {
+        extracted_data: {},
+        next_question: locRes.clarification_question,
+        updated_profile: updatedCandidate,
+        completed: false,
+        confirmation_mode: false,
+        conversation_state: 'ASKING_LOCATION',
+        active_skill_index: 0
+      };
+    } else if (locRes.is_state_only && locRes.state) {
+      return {
+        extracted_data: {},
+        next_question: `Which city or locality in ${locRes.state} do you live or work in?`,
+        updated_profile: updatedCandidate,
+        completed: false,
+        confirmation_mode: false,
+        conversation_state: 'ASKING_LOCATION',
+        active_skill_index: 0
+      };
+    } else if (locRes.city) {
+      const locStr = locRes.formatted_address || locRes.city;
+      updatedCandidate.location = locStr;
+      extractedData.location = locStr;
+
+      return {
+        extracted_data: extractedData,
+        next_question: formulateConfirmationQuestion(updatedCandidate),
+        updated_profile: updatedCandidate,
+        completed: false,
+        confirmation_mode: true,
+        conversation_state: 'CONFIRMING_PROFILE',
+        active_skill_index: 0
+      };
+    } else {
+      return {
+        extracted_data: {},
+        next_question: `Which city or town in India are you based in?`,
+        updated_profile: updatedCandidate,
+        completed: false,
+        confirmation_mode: false,
+        conversation_state: 'ASKING_LOCATION',
+        active_skill_index: 0
+      };
+    }
+  }
+
+  // Default fallback to confirmation
   return {
-    extracted_data: extracted,
-    next_question: nextQuestion,
-    updated_profile: updated,
-    completed,
-    confirmation_mode: confirmationMode
+    extracted_data: {},
+    next_question: formulateConfirmationQuestion(updatedCandidate),
+    updated_profile: updatedCandidate,
+    completed: false,
+    confirmation_mode: true,
+    conversation_state: 'CONFIRMING_PROFILE',
+    active_skill_index: 0
   };
 }
+
+function extractFieldValue(field: keyof ProfileState, speech: string, llmResult: any): any {
+  if (field === 'name') {
+    return normalizeName(llmResult?.value || speech).name;
+  }
+  if (field === 'skill' || field === 'skills') {
+    const list = normalizeSkillsList(speech);
+    if (list.length > 0) return list;
+    const single = normalizeSkill(llmResult?.value || speech).normalized;
+    return single ? [{ name: single, type: 'primary', experience_years: null }] : null;
+  }
+  if (field === 'experience_years') {
+    if (llmResult?.value !== undefined && llmResult.value !== null && !isNaN(Number(llmResult.value))) {
+      return Number(llmResult.value);
+    }
+    return normalizeExperience(speech).experience_years;
+  }
+  if (field === 'location') {
+    const loc = validateAndParseLocation(llmResult?.value || speech);
+    return loc.formatted_address || loc.city || null;
+  }
+  return null;
+}
+
+function applyFieldUpdate(candidate: ProfileState, extracted: Partial<ProfileState>, field: string, value: any) {
+  if (field === 'name' && value) {
+    candidate.name = value;
+    extracted.name = value;
+  } else if ((field === 'skill' || field === 'skills') && value) {
+    if (Array.isArray(value)) {
+      candidate.skills = value;
+      candidate.skill = value[0]?.name || null;
+      candidate.experience_years = value[0]?.experience_years ?? candidate.experience_years;
+    } else if (typeof value === 'string') {
+      candidate.skills = [{ name: value, type: 'primary', experience_years: candidate.experience_years ?? null }];
+      candidate.skill = value;
+    }
+    extracted.skills = candidate.skills;
+    extracted.skill = candidate.skill;
+  } else if (field === 'experience_years' && value !== null && value !== undefined) {
+    const expNum = Number(value);
+    candidate.experience_years = expNum;
+    if (candidate.skills && candidate.skills.length > 0) {
+      candidate.skills[0].experience_years = expNum;
+    }
+    extracted.experience_years = expNum;
+    extracted.skills = candidate.skills;
+  } else if (field === 'location' && value) {
+    candidate.location = value;
+    extracted.location = value;
+  }
+}
+
+function formatFieldLabel(field: string): string {
+  if (field === 'experience_years') return 'experience';
+  if (field === 'skills' || field === 'skill') return 'skills';
+  return field;
+}
+
+function getFieldPrompt(field: string, prefix: string = ""): string {
+  switch (field) {
+    case 'name':
+      return `${prefix}What is your full name?`;
+    case 'skill':
+    case 'skills':
+      return `${prefix}What are your skills, crafts, or work?`;
+    case 'experience_years':
+      return `${prefix}How many years of experience do you have?`;
+    case 'location':
+      return `${prefix}Which city or locality in India do you live or work in?`;
+    default:
+      return `${prefix}What would you like to update?`;
+  }
+}
+
+function formulateConfirmationQuestion(candidate: ProfileState, prefix: string = ""): string {
+  const skills = candidate.skills && candidate.skills.length > 0
+    ? candidate.skills
+    : (candidate.skill ? [{ name: candidate.skill, experience_years: candidate.experience_years, type: 'primary' as const }] : []);
+
+  let skillsSummary = "";
+  if (skills.length === 1) {
+    const expText = skills[0].experience_years === 0
+      ? "you are starting out (0 years)"
+      : `you have ${skills[0].experience_years ?? 0} years of experience`;
+    skillsSummary = `your skill is ${skills[0].name} with ${expText}`;
+  } else if (skills.length > 1) {
+    const parts = skills.map(s => {
+      const expStr = s.experience_years === 0
+        ? "starting out (0 years)"
+        : `${s.experience_years ?? 0} years of experience`;
+      return `${s.name} with ${expStr}`;
+    });
+    if (parts.length === 2) {
+      skillsSummary = `your skills are ${parts[0]}, and ${parts[1]}`;
+    } else {
+      const last = parts.pop();
+      skillsSummary = `your skills are ${parts.join(', ')}, and ${last}`;
+    }
+  } else {
+    skillsSummary = "your profile details are recorded";
+  }
+
+  return `${prefix}${candidate.name}, here is what I understood: ${skillsSummary}, and you are located in ${candidate.location || 'India'}. Is everything correct?`;
+}
+
