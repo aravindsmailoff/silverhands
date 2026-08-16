@@ -41,3 +41,20 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# video-backend (Python FastAPI) — ignore runtime dirs, keep source
+video-backend/uploads/
+video-backend/output/
+video-backend/sessions/
+video-backend/venv/
+video-backend/__pycache__/
+video-backend/.transcript_cache/
+video-backend/app_backup.py
+video-backend/job_*.json
+video-backend/job_*.txt
+video-backend/status.json
+video-backend/subs.ass
+video-backend/*.mp4
+video-backend/*.gif
+**/__pycache__/
+*.pyc
