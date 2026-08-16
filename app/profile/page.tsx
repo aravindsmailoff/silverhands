@@ -84,7 +84,7 @@ export default function ProfilePage() {
             topic: v.topic,
             description: v.description,
             recordedAt: new Date(v.recorded_at).toLocaleDateString(),
-            videoUrl: v.video_url
+            videoUrl: v.video_data || v.video_url
           })));
         } else if (typeof window !== 'undefined') {
           const saved = JSON.parse(localStorage.getItem('silverhands_recorded_videos') || '[]');

@@ -8,7 +8,7 @@ export async function GET() {
     if (pool) {
       try {
         const res = await pool.query(
-          `SELECT id, creator_name, topic, description, video_url, recorded_at FROM recorded_videos ORDER BY recorded_at DESC`
+          `SELECT id, creator_name, topic, description, video_url, video_data, recorded_at FROM recorded_videos ORDER BY recorded_at DESC`
         );
         return NextResponse.json({ success: true, videos: res.rows, source: 'postgresql' });
       } catch (dbErr) {
