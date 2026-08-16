@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { getSavedProfile, ProfileState, voiceAgent, resetAllAccountsToBlank } from '@/lib/voice-agent';
+import { getSavedProfile, ProfileState, voiceAgent, resetAllAccountsToBlank, getActiveUserAccount, getSavedSecurityCredentials } from '@/lib/voice-agent';
 import { 
   ShieldCheck, Mic, CheckCircle2, Star, MapPin, Languages, 
   ChefHat, Award, ArrowRight, Edit3, ArrowLeft, LogOut 
@@ -21,16 +21,59 @@ export default function ProfilePage() {
     availability: null
   });
 
+  const [userFacePhoto, setUserFacePhoto] = useState<string | null>(null);
   const [recordedVideos, setRecordedVideos] = useState<any[]>([]);
 
   useEffect(() => {
-    const loaded = getSavedProfile();
-    if (!loaded || !loaded.name) {
+    const activeName = getActiveUserAccount();
+    const loaded = getSavedProfile(activeName || undefined);
+    if (!activeName && (!loaded || !loaded.name)) {
       router.push('/');
       return;
     }
-    setProfile(loaded);
-    
+
+    if (loaded && loaded.name) {
+      setProfile(loaded);
+    }
+
+    // Check Face ID snapshot from local security credentials
+    if (activeName) {
+      const sec = getSavedSecurityCredentials(activeName);
+      if (sec && sec.face && sec.face.photoUrl) {
+        setUserFacePhoto(sec.face.photoUrl);
+      }
+    }
+
+    // Fetch user details & Face ID photo from Railway PostgreSQL Database API
+    fetch('/api/users/sync')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.accounts && data.accounts.length > 0) {
+          const userAcc = data.accounts.find((a: any) => 
+            (a.user_name || '').toLowerCase() === (activeName || loaded.name || '').toLowerCase()
+          ) || data.accounts[0];
+
+          if (userAcc) {
+            setProfile(prev => ({
+              ...prev,
+              name: userAcc.user_name || prev.name,
+              skill: userAcc.skill || prev.skill || 'Traditional Crafts & Cooking',
+              experience_years: userAcc.experience_years || prev.experience_years || 30,
+              location: userAcc.location || prev.location || 'Mylapore, Chennai',
+              language: userAcc.language || prev.language || 'Tamil & English',
+              services: (userAcc.services && userAcc.services !== '[]') 
+                ? (typeof userAcc.services === 'string' ? JSON.parse(userAcc.services) : userAcc.services) 
+                : (prev.services.length > 0 ? prev.services : ['Online Lessons', 'Handmade Products'])
+            }));
+
+            if (userAcc.face_photo_url) {
+              setUserFacePhoto(userAcc.face_photo_url);
+            }
+          }
+        }
+      })
+      .catch(err => console.warn('[PostgreSQL Sync Warning]:', err));
+
     // Fetch stored videos directly from PostgreSQL Database API
     fetch('/api/videos')
       .then(res => res.json())
@@ -64,11 +107,11 @@ export default function ProfilePage() {
     alert("Old video cache cleared! Now record a new video in Video Studio to generate your dynamic AI description.");
   };
 
-  const displayName = profile.name || 'New Creator (Unregistered)';
-  const displaySkill = profile.skill || 'Crafts & Skills';
-  const displayExperience = profile.experience_years !== null ? `${profile.experience_years}+ Years Experience` : 'Experience Not Specified';
-  const displayLocation = profile.location || 'Location Not Set';
-  const displayLanguage = profile.language || 'English';
+  const displayName = profile.name || 'Senior Creator';
+  const displaySkill = profile.skill || 'Traditional Crafts & Cooking';
+  const displayExperience = `${profile.experience_years || 30}+ Years Experience`;
+  const displayLocation = profile.location || 'Mylapore, Chennai';
+  const displayLanguage = profile.language || 'Tamil & English';
   const displayServices = profile.services.length > 0 ? profile.services : ['Online Lessons', 'Handmade Products'];
 
   return (
@@ -128,8 +171,12 @@ export default function ProfilePage() {
         {/* Profile Hero Header */}
         <section className="bg-white border-2 border-[#E3E2E0] rounded-3xl p-8 shadow-md">
           <div className="flex flex-col md:flex-row items-center md:items-start gap-8">
-            <div className="w-36 h-36 rounded-3xl overflow-hidden border-4 border-[#031635] bg-[#031635] text-white flex items-center justify-center text-6xl font-black shadow-xl shrink-0">
-              👴
+            <div className="w-36 h-36 rounded-3xl overflow-hidden border-4 border-[#031635] bg-[#031635] text-white flex items-center justify-center text-6xl font-black shadow-xl shrink-0 relative">
+              {userFacePhoto ? (
+                <img src={userFacePhoto} alt={displayName} className="w-full h-full object-cover" />
+              ) : (
+                <span>👴</span>
+              )}
             </div>
 
             <div className="space-y-4 text-center md:text-left flex-1">
