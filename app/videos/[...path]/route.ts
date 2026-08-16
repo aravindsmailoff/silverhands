@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-export async function GET(req: NextRequest, { params }: { params: { path: string[] } }) {
-  let pathString = params.path.join('/');
+export async function GET(req: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
+  const resolvedParams = await params;
+  let pathString = resolvedParams.path.join('/');
   if (pathString.startsWith('videos/')) {
     pathString = pathString.substring(7);
   }

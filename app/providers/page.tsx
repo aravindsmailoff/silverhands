@@ -158,7 +158,7 @@ export default function ProvidersSearchPage() {
                     <div className="space-y-1">
                       <div className="flex items-center gap-1.5">
                         <span className="font-extrabold text-lg text-[#031635] line-clamp-1">{provider.user_name}</span>
-                        <ShieldCheck className="w-5 h-5 text-[#2D5A27] shrink-0" title="Guardian Verified" />
+                        <span title="Guardian Verified"><ShieldCheck className="w-5 h-5 text-[#2D5A27] shrink-0" /></span>
                       </div>
                       <div className="flex items-center gap-1 text-sm font-semibold text-[#44474E]">
                         <ChefHat className="w-4 h-4 text-[#031635]" />

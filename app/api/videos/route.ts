@@ -87,7 +87,7 @@ export async function POST(req: Request) {
         duration_seconds: durationSeconds || 15,
         created_at: new Date().toISOString()
       };
-      memoryStore.listings.unshift(fallbackVid);
+      (memoryStore.listings as any[]).unshift(fallbackVid);
       return NextResponse.json({ success: true, video: fallbackVid, source: 'memory' });
     }
 
@@ -113,7 +113,7 @@ export async function POST(req: Request) {
 
     // 2. Insert new version under existing video
     if (videoId && versionNumber) {
-      const versionId = `ver-${Date.now()}`;
+      const versionId = `ver-${videoId}-${versionNumber}`;
       const insertVersionSql = `
         INSERT INTO video_versions (id, video_id, version_number, storage_key, video_type, duration_seconds)
         VALUES ($1, $2, $3, $4, $5, $6)

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getSavedProfile, ProfileState, voiceAgent, setActiveUserAccount, getActiveUserAccount, getSavedSecurityCredentials } from '@/lib/voice-agent';
@@ -9,7 +9,7 @@ import {
   ChefHat, Award, ArrowRight, Edit3, ArrowLeft, LogOut, Trash2
 } from 'lucide-react';
 
-export default function ProfilePage() {
+function ProfilePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryUsername = searchParams ? searchParams.get('username') : null;
@@ -504,5 +504,13 @@ export default function ProfilePage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function ProfilePage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-[#FAF9F6] text-xl font-bold">Loading Profile...</div>}>
+      <ProfilePageContent />
+    </Suspense>
   );
 }
