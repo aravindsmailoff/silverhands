@@ -43,6 +43,7 @@ app.add_middleware(
 )
 
 app.mount("/videos", StaticFiles(directory=OUTPUT_DIR), name="videos")
+app.mount("/videos/videos", StaticFiles(directory=OUTPUT_DIR), name="videos_fallback")
 app.mount("/sessions", StaticFiles(directory=SESSIONS_DIR), name="sessions")
 
 # In-memory queues and state

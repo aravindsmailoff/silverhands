@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function GET(req: NextRequest, { params }: { params: { path: string[] } }) {
-  const path = params.path.join('/');
-  const backendUrl = `http://localhost:8000/videos/${path}`;
+  let pathString = params.path.join('/');
+  if (pathString.startsWith('videos/')) {
+    pathString = pathString.substring(7);
+  }
+  const backendUrl = `http://localhost:8000/videos/${pathString}`;
 
   const headers = new Headers();
   const range = req.headers.get('range');
