@@ -61,6 +61,15 @@ export async function POST(req: Request) {
     const creator = creatorName || 'Creator';
     const url = videoUrl || 'blob:video-recorded';
 
+    const newVideo = {
+      id: videoId,
+      creator_name: creator,
+      topic,
+      description,
+      video_url: url,
+      recorded_at: new Date().toISOString()
+    };
+
     const pool = await getPool();
 
     if (pool) {
@@ -72,20 +81,16 @@ export async function POST(req: Request) {
         );
         console.log(`[DB] Video "${topic}" stored successfully for creator ${creator}.`);
       } catch (dbErr) {
-        console.warn('[DB] Video insert SQL error:', dbErr);
+        console.warn('[DB] Video insert SQL error, falling back to memory:', dbErr);
+        memoryStore.listings.unshift({ ...newVideo, owner_name: creator, title: topic });
       }
+    } else {
+      memoryStore.listings.unshift({ ...newVideo, owner_name: creator, title: topic });
     }
 
     return NextResponse.json({
       success: true,
-      video: {
-        id: videoId,
-        creator_name: creator,
-        topic,
-        description,
-        video_url: url,
-        recorded_at: new Date().toISOString()
-      }
+      video: newVideo
     });
   } catch (err: any) {
     console.error('Error saving video to database:', err);
