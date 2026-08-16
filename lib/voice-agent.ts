@@ -157,8 +157,33 @@ export function isPasswordUsedByOtherUser(userName: string, passwordInput: strin
   for (const key of Object.keys(registry)) {
     if (key !== currentKey) {
       const account = registry[key];
-      if (account && account.security && account.security.password === passwordInput) {
+      if (account && account.security && account.security.password && account.security.password.trim().toLowerCase() === passwordInput.trim().toLowerCase()) {
         return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Checks if a Voice PIN is already registered by ANOTHER user account
+ */
+export function isVoicePinUsedByOtherUser(userName: string, pinInput: string): boolean {
+  if (!pinInput) return false;
+  const cleanInput = pinInput.replace(/\D/g, '');
+  const rawInput = pinInput.trim().toLowerCase();
+  const registry = getAccountsRegistry();
+  const currentKey = normalizeUserName(userName);
+
+  for (const key of Object.keys(registry)) {
+    if (key !== currentKey) {
+      const account = registry[key];
+      if (account && account.security && account.security.voicePin) {
+        const pinRaw = account.security.voicePin.trim().toLowerCase();
+        const pinDigits = pinRaw.replace(/\D/g, '');
+        if ((cleanInput && pinDigits === cleanInput) || pinRaw === rawInput) {
+          return true;
+        }
       }
     }
   }

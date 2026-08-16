@@ -191,14 +191,14 @@ export default function VoiceConversationalApp() {
     );
   };
 
-  // Logout action - completely resets browser storage to blank
+  // Logout action - clears active session without deleting saved accounts
   const handleLogout = () => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
     voiceService.stopListening();
     stopCamera();
-    resetAllAccountsToBlank();
+    setActiveUserAccount('');
     voiceAgent.resetState();
     setProfileState({ ...INITIAL_PROFILE_STATE });
     setConversationState('ASKING_NAME');

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { getSavedProfile, voiceAgent, resetAllAccountsToBlank } from '@/lib/voice-agent';
+import { getSavedProfile, voiceAgent, setActiveUserAccount } from '@/lib/voice-agent';
 import { Video, Mic, User, LogOut, ShieldCheck, Package } from 'lucide-react';
 
 export default function DashboardPage() {
@@ -25,7 +25,7 @@ export default function DashboardPage() {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
-    resetAllAccountsToBlank();
+    setActiveUserAccount('');
     voiceAgent.resetState();
     router.push('/');
   };

@@ -10,9 +10,9 @@ import { voiceService } from '@/lib/voice';
 import { 
   getSavedProfile, saveProfileState, getSavedSecurityCredentials, 
   registerFaceData, registerVoicePinData, registerPasswordData, SecurityCredentials,
-  getActiveUserAccount, setActiveUserAccount, isPasswordUsedByOtherUser,
+  getActiveUserAccount, setActiveUserAccount, isPasswordUsedByOtherUser, isVoicePinUsedByOtherUser,
   getAllRegisteredFaceAccounts, findAccountByPassword, findAccountByVoicePin,
-  resetAllAccountsToBlank, getAccountsRegistry
+  getAccountsRegistry
 } from '@/lib/voice-agent';
 import { extractSpokenDigits } from '@/lib/semantic-extractor';
 
@@ -163,14 +163,15 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
   }, [isOpen]);
 
   const loadRegisteredAccounts = async () => {
-    let accounts: any[] = [];
+    const accountsMap = new Map<string, any>();
     
     // 1. From local registry
     const registry = getAccountsRegistry();
     for (const key of Object.keys(registry)) {
       const acc = registry[key];
       if (acc && acc.userName) {
-        accounts.push({
+        const normKey = acc.userName.toLowerCase().trim();
+        accountsMap.set(normKey, {
           userName: acc.userName,
           photoUrl: acc.security?.face?.photoUrl || null,
           voicePin: acc.security?.voicePin || null,
@@ -186,12 +187,14 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
       if (data.success && data.accounts) {
         for (const dbAcc of data.accounts) {
           const name = dbAcc.user_name;
-          if (name && !accounts.some(a => a.userName.toLowerCase() === name.toLowerCase())) {
-            accounts.push({
+          if (name) {
+            const normKey = name.toLowerCase().trim();
+            const existing = accountsMap.get(normKey);
+            accountsMap.set(normKey, {
               userName: name,
-              photoUrl: dbAcc.face_photo_url || null,
-              voicePin: dbAcc.voice_pin || null,
-              password: dbAcc.password_hash || null
+              photoUrl: dbAcc.face_photo_url || existing?.photoUrl || null,
+              voicePin: dbAcc.voice_pin || existing?.voicePin || null,
+              password: dbAcc.password_hash || existing?.password || null
             });
           }
         }
@@ -200,7 +203,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
       console.warn('DB fetch notice:', e);
     }
 
-    setRegisteredAccountsList(accounts);
+    setRegisteredAccountsList(Array.from(accountsMap.values()));
   };
 
   const stopCamera = () => {
@@ -615,7 +618,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
           )}
 
           {/* Bottom Action Footer */}
-          <div className="pt-4 border-t border-[#E3E2E0] flex items-center justify-between">
+          <div className="pt-4 border-t border-[#E3E2E0] flex items-center justify-center">
             <button
               onClick={() => {
                 stopCamera();
@@ -624,23 +627,9 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
                   onStartVoiceOnboarding();
                 }
               }}
-              className="text-xs font-extrabold text-[#031635] hover:underline flex items-center gap-1"
+              className="text-xs font-extrabold text-[#031635] hover:underline flex items-center gap-1 py-1"
             >
               + Create New Account with Voice
-            </button>
-
-            <button
-              onClick={() => {
-                if (confirm("Reset database and all saved accounts?")) {
-                  resetAllAccountsToBlank();
-                  stopCamera();
-                  onClose();
-                  router.push('/');
-                }
-              }}
-              className="text-[11px] font-bold text-rose-600 hover:underline"
-            >
-              Reset Database
             </button>
           </div>
 
