@@ -34,8 +34,8 @@ async function generateWithOllama(prompt: string): Promise<string | null> {
   for (const modelCandidate of modelsToAttempt) {
     try {
       const controller = new AbortController();
-      // Tight 2.5s timeout for fast UI response
-      const timeoutId = setTimeout(() => controller.abort(), 2500);
+      // 8s timeout – gives local Ollama enough time to respond
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
 
       const res = await fetch(`${ollamaHost}/api/generate`, {
         method: 'POST',
@@ -190,10 +190,10 @@ Return ONLY valid JSON with no markdown backticks:
     }
   }
 
-  // High-reliability clean speech description fallback
+  // Reliable fallback: always returns something readable
   return {
-    title: formattedText.length > 45 ? formattedText.slice(0, 42) + '...' : formattedText,
-    description: `In this video lesson, senior creator ${creatorName} demonstrates: "${formattedText}".`
+    title: formattedText.length > 45 ? formattedText.slice(0, 42) + '...' : (formattedText || 'Senior Lesson Video'),
+    description: `In this video lesson, senior creator ${creatorName} shares step-by-step guidance on: "${formattedText || 'traditional skills and techniques'}".`
   };
 }
 
