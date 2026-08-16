@@ -8,7 +8,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "video:start": "cd video-backend && uvicorn app:app --host 0.0.0.0 --port 8000 --reload",
+    "video:start": "cd video-backend && set PYTHONIOENCODING=utf-8&& uvicorn app:app --host 0.0.0.0 --port 8000 --reload",
     "video:install": "cd video-backend && pip install -r requirements.txt"
   },
   "dependencies": {

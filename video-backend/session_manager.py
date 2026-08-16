@@ -78,15 +78,15 @@ def load_session_memory(session_id: str) -> Optional[Dict[str, Any]]:
     try:
         with open(transcript_path, "r", encoding="utf-8") as f:
             transcript = json.load(f)
-        print(f"⚡ [CACHE] Transcript loaded for session {session_id}")
+        print(f"[CACHE] [CACHE] Transcript loaded for session {session_id}")
 
         with open(vuo_path, "r", encoding="utf-8") as f:
             vuo = json.load(f)
-        print(f"⚡ [CACHE] VUO loaded for session {session_id}")
+        print(f"[CACHE] [CACHE] VUO loaded for session {session_id}")
 
         with open(scenes_path, "r", encoding="utf-8") as f:
             scenes = json.load(f)
-        print(f"⚡ [CACHE] Scene analysis loaded for session {session_id}")
+        print(f"[CACHE] [CACHE] Scene analysis loaded for session {session_id}")
 
         analysis = {}
         if os.path.exists(analysis_path):
@@ -105,7 +105,7 @@ def load_session_memory(session_id: str) -> Optional[Dict[str, Any]]:
             "content_mode": vuo.get("content_mode", "speech")
         }
     except Exception as e:
-        print(f"⚠️ [session_manager] Error reading session {session_id}: {e}")
+        print(f"[WARN] [session_manager] Error reading session {session_id}: {e}")
         return None
 
 
@@ -128,7 +128,7 @@ def save_session_memory(
         try:
             shutil.copy2(source_path, session_source)
         except Exception as e:
-            print(f"⚠️ [session_manager] Could not copy source to session dir ({e}); using original path.")
+            print(f"[WARN] [session_manager] Could not copy source to session dir ({e}); using original path.")
             session_source = source_path
 
     # Save transcript
@@ -187,7 +187,7 @@ def record_session_version(
         try:
             shutil.copy2(rendered_video_path, dest_render_path)
         except Exception as e:
-            print(f"⚠️ [session_manager] Could not copy render to session dir: {e}")
+            print(f"[WARN] [session_manager] Could not copy render to session dir: {e}")
 
     # Update metadata
     meta_path = os.path.join(s_dir, "session_metadata.json")
@@ -219,7 +219,7 @@ def record_session_version(
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
 
-    print(f"💾 [session_manager] Recorded version {version_num} for session {session_id}")
+    print(f"[SAVE] [session_manager] Recorded version {version_num} for session {session_id}")
     return version_record
 
 
