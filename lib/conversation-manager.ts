@@ -247,28 +247,52 @@ async function callGeminiConversationAgent(
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
 
-  const prompt = `
-You are the SilverHands Jarvis-style Conversational Onboarding Assistant for Indian elder creators.
-Your job is to understand the user's intent, extract structured profile entities, handle questions/corrections, and converse naturally.
+  // Determine current onboarding stage to give Gemini precise context
+  const stageName = !currentProfile.name
+    ? 'STAGE_1_NAME'
+    : (!currentProfile.skills || currentProfile.skills.length === 0)
+      ? 'STAGE_2_SKILLS'
+      : (currentProfile.skills.some(s => s.experience_years === null))
+        ? 'STAGE_3_EXPERIENCE'
+        : !currentProfile.location
+          ? 'STAGE_4_LOCATION'
+          : 'STAGE_5_CONFIRM';
 
-CURRENT VERIFIED/CANDIDATE PROFILE STATE:
+  const skillNeedingExp = currentProfile.skills?.find(s => s.experience_years === null)?.name || null;
+
+  const prompt = `
+You are Jarvis — the warm, patient, voice-first onboarding assistant for SilverHands, a livelihood platform for senior Indian creators and artisans.
+Your role: extract profile information from elderly Indian users speaking naturally (with accents, ASR errors, mixed language), and ask the next question conversationally.
+
+CURRENT PROFILE STATE:
 ${JSON.stringify(currentProfile, null, 2)}
 
-PREVIOUS CONVERSATION HISTORY:
-${history.map(h => `${h.role === 'assistant' ? 'AI' : 'User'}: "${h.text}"`).join('\n') || '(Conversation just started)'}
+CURRENT ONBOARDING STAGE: ${stageName}
+${skillNeedingExp ? `SKILL NEEDING EXPERIENCE: "${skillNeedingExp}"` : ''}
 
-LAST ASSISTANT QUESTION/MESSAGE:
+CONVERSATION HISTORY (last ${Math.min(history.length, 6)} turns):
+${history.slice(-6).map(h => `${h.role === 'assistant' ? 'Jarvis' : 'User'}: "${h.text}"`).join('\n') || '(First message)'}
+
+LAST JARVIS QUESTION:
 "${lastAssistantMessage}"
 
-NEW USER SPEECH:
+USER JUST SAID:
 "${userSpeech}"
 
 INSTRUCTIONS:
 1. Classify the user's INTENT: "confirm_yes" | "confirm_no" | "correct_previous" | "ask_question" | "provide_information" | "add_information".
-2. If the user is CONFIRMING (e.g. "Yes", "Everything is correct"), do NOT extract skills or profile fields.
-3. If the user asks a QUESTION (e.g. "Can I teach online?"), answer warmly about SilverHands, then pivot to what is missing.
-4. If the user CORRECTS something (e.g. "No, 4 years"), output the exact correction object.
-5. If the user provides multiple pieces of information at once (name, skills, experience, location), extract all of them.
+2. Extract any profile information the user has provided.
+3. If confirming ("Yes", "That's right", etc.), do NOT extract new skills or fields — just confirm.
+4. If the user asks a question about SilverHands, answer warmly and pivot to the next missing field.
+5. For "assistant_response": Write a UNIQUE, WARM, conversational follow-up question for the NEXT stage.
+   - Do NOT repeat the last question verbatim. Rephrase or ask from a different angle.
+   - For STAGE_1_NAME: Ask for the user's name in a friendly, welcoming way.
+   - For STAGE_2_SKILLS: Ask about their skills, crafts, or expertise — mention SilverHands connects them with learners.
+   - For STAGE_3_EXPERIENCE: Ask specifically about years of experience in "${skillNeedingExp || 'their skill'}" in a natural, encouraging way.
+   - For STAGE_4_LOCATION: Ask which city or locality they live or work in.
+   - For STAGE_5_CONFIRM: Summarize what you have and ask if it is correct.
+   - Keep the tone warm, respectful, and suitable for senior citizens.
+   - Never say "Sorry" or "Unfortunately" unnecessarily.
 
 RETURN STRICT JSON ONLY:
 {
@@ -603,6 +627,15 @@ export async function manageConversationTurn(
 
   // TIMELINE BARRIER 1: Without a valid Name, no skills, experience, or location can be collected.
   if (!updatedProfile.name) {
+    const NAME_QUESTIONS = [
+      "Welcome to SilverHands! I'm here to help you set up your profile. Could you please tell me your full name?",
+      "Hello! I'm Jarvis, your SilverHands guide. To get started, may I know your name?",
+      "Welcome! Let's create your SilverHands profile together. What is your name?",
+      "Namaste! I'm Jarvis. Before we begin, could you kindly share your full name?",
+      "Hi there! I'm delighted to help you join SilverHands. What should I call you?"
+    ];
+    const nameQuestion = llmResult?.assistant_response ||
+      NAME_QUESTIONS[Math.floor(Math.random() * NAME_QUESTIONS.length)];
     return {
       action: {
         intent,
@@ -612,7 +645,7 @@ export async function manageConversationTurn(
         extracted_location: null,
         missing_fields: ['name', 'skills', 'experience', 'location'],
         next_action: 'collect_information',
-        assistant_response: "Welcome to SilverHands! I will help you create your profile using voice. What is your full name?",
+        assistant_response: nameQuestion,
         completed: false
       },
       updatedProfile
@@ -688,6 +721,16 @@ export async function manageConversationTurn(
 
   // TIMELINE BARRIER 2: Without at least one verified skill, cannot collect experience or location.
   if (!updatedProfile.skills || updatedProfile.skills.length === 0) {
+    const n = updatedProfile.name || 'there';
+    const SKILL_QUESTIONS = [
+      `It's lovely to meet you, ${n}! What skills or crafts have you mastered over the years?`,
+      `Wonderful, ${n}! SilverHands connects talented people with eager learners. What do you enjoy making, teaching, or creating?`,
+      `Great to have you here, ${n}! Could you tell me about the skills or arts you practice?`,
+      `Thank you, ${n}! What are the things you are best at — a craft, a skill, or something you love to teach?`,
+      `${n}, I would love to know more about your expertise. What skills or activities define your work?`
+    ];
+    const skillQuestion = llmResult?.assistant_response ||
+      SKILL_QUESTIONS[Math.floor(Math.random() * SKILL_QUESTIONS.length)];
     return {
       action: {
         intent,
@@ -697,7 +740,7 @@ export async function manageConversationTurn(
         extracted_location: null,
         missing_fields: ['skills', 'experience', 'location'],
         next_action: 'collect_information',
-        assistant_response: `Nice to meet you, ${updatedProfile.name}! What skills, crafts, or subjects do you practice or teach?`,
+        assistant_response: skillQuestion,
         completed: false
       },
       updatedProfile
@@ -721,6 +764,16 @@ export async function manageConversationTurn(
   // Check if any skill is still missing experience
   const missingStatusAfterExp = calculateMissingFields(updatedProfile);
   if (missingStatusAfterExp.missing.includes('experience') && missingStatusAfterExp.skillNeedingExperience) {
+    const skillName = missingStatusAfterExp.skillNeedingExperience.name;
+    const EXP_QUESTIONS = [
+      `That's impressive! How many years have you been practising ${skillName}?`,
+      `Wonderful! Could you tell me how long you have been doing ${skillName}?`,
+      `Great skill! How many years of experience do you have in ${skillName}?`,
+      `${skillName} sounds amazing! How many years have you spent mastering it?`,
+      `I'd love to know — how long have you been involved in ${skillName}?`
+    ];
+    const expQuestion = llmResult?.assistant_response ||
+      EXP_QUESTIONS[Math.floor(Math.random() * EXP_QUESTIONS.length)];
     return {
       action: {
         intent,
@@ -730,7 +783,7 @@ export async function manageConversationTurn(
         extracted_location: null,
         missing_fields: missingStatusAfterExp.missing,
         next_action: 'collect_information',
-        assistant_response: `How many years of experience do you have in ${missingStatusAfterExp.skillNeedingExperience.name}?`,
+        assistant_response: expQuestion,
         completed: false
       },
       updatedProfile
@@ -759,6 +812,16 @@ export async function manageConversationTurn(
 
   // TIMELINE BARRIER 4: Check if Location is still missing
   if (!updatedProfile.location) {
+    const LOC_QUESTIONS = [
+      `Almost done! Which city or locality in India do you live or work in?`,
+      `We're nearly there! Could you tell me your city or area so learners nearby can find you?`,
+      `One last thing — which part of India are you based in?`,
+      `Great, ${updatedProfile.name}! Which city or town are you from?`,
+      `To help connect you with local learners, could you share your city or locality?`
+    ];
+    const locQuestion = locationClarificationMsg ||
+      llmResult?.assistant_response ||
+      LOC_QUESTIONS[Math.floor(Math.random() * LOC_QUESTIONS.length)];
     return {
       action: {
         intent,
@@ -768,7 +831,7 @@ export async function manageConversationTurn(
         extracted_location: null,
         missing_fields: ['location'],
         next_action: locationClarificationMsg ? 'clarify' : 'collect_information',
-        assistant_response: locationClarificationMsg || `Which city or locality in India are you based in?`,
+        assistant_response: locQuestion,
         completed: false
       },
       updatedProfile
@@ -777,9 +840,16 @@ export async function manageConversationTurn(
 
   // --- STAGE 5: SUMMARY & CONFIRMATION ---
   nextAction = 'confirm';
-  const skillSummary = (updatedProfile.skills || []).map(s => `${s.name} (${s.experience_years} years)`).join(', ');
+  const skillSummary = (updatedProfile.skills || []).map(s => `${s.name} (${s.experience_years} year${s.experience_years === 1 ? '' : 's'})`).join(', ');
   if (!assistantResponse) {
-    assistantResponse = `${updatedProfile.name}, here is what I have recorded: your skills are ${skillSummary}, and you are located in ${updatedProfile.location}. Is everything correct?`;
+    const CONFIRM_QUESTIONS = [
+      `${updatedProfile.name}, here is your profile: skills — ${skillSummary}, location — ${updatedProfile.location}. Does everything look correct?`,
+      `Perfect, ${updatedProfile.name}! I have noted: ${skillSummary}, based in ${updatedProfile.location}. Shall I save this?`,
+      `Let me read that back — ${updatedProfile.name}, specialising in ${skillSummary}, located in ${updatedProfile.location}. Is that right?`,
+      `Thank you, ${updatedProfile.name}! Your profile shows ${skillSummary} in ${updatedProfile.location}. Is everything accurate?`
+    ];
+    assistantResponse = llmResult?.assistant_response ||
+      CONFIRM_QUESTIONS[Math.floor(Math.random() * CONFIRM_QUESTIONS.length)];
   }
 
   return {
