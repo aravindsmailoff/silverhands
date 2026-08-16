@@ -24,13 +24,13 @@ export interface AgentTurnResponse {
 }
 
 export const INITIAL_PROFILE_STATE: ProfileState = {
-  name: null,
-  skill: null,
-  experience_years: null,
-  location: null,
-  language: null,
-  services: [],
-  availability: null
+  name: 'Senior Creator',
+  skill: 'Traditional Cooking & Crafts',
+  experience_years: 30,
+  location: 'Mylapore, Chennai',
+  language: 'Tamil & English',
+  services: ['Online Lessons', 'Handmade Products'],
+  availability: 'Available Daily'
 };
 
 const STORAGE_KEY = 'silverhands_user_profile';
@@ -246,20 +246,26 @@ export function getAllRegisteredFaceAccounts(): UserAccountEntry[] {
 }
 
 export function getSavedProfile(targetUserName?: string): ProfileState {
-  const name = targetUserName || getActiveUserAccount();
-  if (!name) return { ...INITIAL_PROFILE_STATE };
-  
+  const name = targetUserName || getActiveUserAccount() || 'Senior Creator';
   const key = normalizeUserName(name);
   const registry = getAccountsRegistry();
   
   if (registry[key] && registry[key].profile) {
-    return registry[key].profile;
+    const p = registry[key].profile;
+    return {
+      name: p.name || name,
+      skill: p.skill || 'Traditional Cooking & Crafts',
+      experience_years: p.experience_years || 30,
+      location: p.location || 'Mylapore, Chennai',
+      language: p.language || 'Tamil & English',
+      services: p.services && p.services.length > 0 ? p.services : ['Online Lessons', 'Handmade Products'],
+      availability: p.availability || 'Available Daily'
+    };
   }
   
   return {
     ...INITIAL_PROFILE_STATE,
-    name: name,
-    skill: 'Crafts & Cooking'
+    name: name
   };
 }
 
