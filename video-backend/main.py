@@ -1945,8 +1945,8 @@ if __name__ == '__main__':
     parser.add_argument('--format', type=str, default="auto", choices=["auto", "vertical", "horizontal", "square"],
                         help="Output aspect: vertical/auto (9:16), horizontal (keep 16:9), square (1:1).")
     parser.add_argument('--silverhands', action='store_true', help="Enable SilverHands showcase generation pipeline.")
-    parser.add_argument('--mode', type=str, default="highlight", choices=["highlight", "process"],
-                        help="Showcase generation mode: highlight or process.")
+    parser.add_argument('--mode', type=str, default="highlight",
+                        help="Showcase generation mode: highlight, process, auto, tutorial, or story.")
     parser.add_argument('--focus', type=str, default="", help="Focus guidance/preference for the showcase.")
     parser.add_argument('--plan-only', action='store_true', help="Only generate the showcase editorial JSON/edit plan without rendering the video.")
     
