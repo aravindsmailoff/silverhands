@@ -9,10 +9,11 @@ const VIDEOMODEL_URL = process.env.VIDEOMODEL_URL || 'http://localhost:8000';
  */
 export async function GET(
   _req: Request,
-  { params }: { params: { jobId: string } }
+  { params }: { params: Promise<{ jobId: string }> }
 ) {
   try {
-    const upstream = await fetch(`${VIDEOMODEL_URL}/api/status/${params.jobId}`, {
+    const { jobId } = await params;
+    const upstream = await fetch(`${VIDEOMODEL_URL}/api/status/${jobId}`, {
       signal: AbortSignal.timeout(10_000),
     });
     const data = await upstream.json();

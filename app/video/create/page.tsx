@@ -1,88 +1,121 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, {
+  useState, useRef, useEffect, useCallback,
+} from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { voiceService } from '@/lib/voice';
 import { getSavedProfile } from '@/lib/voice-agent';
-import { Video, Mic, ArrowLeft, Sparkles, Hand, ThumbsUp, Square, RefreshCw, Save, RotateCcw } from 'lucide-react';
+import {
+  detectBothThumbs, detectTshape, detectBothOpenShaking,
+  pushShakeHistory, ShakeHistory,
+} from '@/lib/gesture-detector';
+import {
+  Video, Upload, ArrowLeft, Sparkles, Square, RotateCcw,
+  Save, Download, Play, Pause, CheckCircle, Loader2,
+  MonitorPlay, Scissors, BookOpen, Zap, ChevronRight,
+  AlertTriangle, Camera,
+} from 'lucide-react';
 
-declare global {
-  interface Window { Hands: any; }
-}
+declare global { interface Window { Hands: any; } }
 
+// ── Stage type ────────────────────────────────────────────────────────────────
+type Stage =
+  | 'choose'           // Stage 0
+  | 'record'           // Stage 1A
+  | 'upload'           // Stage 1B
+  | 'confirm'          // Stage 2 – source ready, uploading to vediomodel
+  | 'output-choose'    // Stage 3 – pick mode, trigger processing
+  | 'processing'       // Stage 3b – polling job status
+  | 'preview';         // Stage 4 – view generated clips
+
+type RecordState = 'idle' | 'countdown' | 'recording' | 'paused' | 'done';
+
+const VIDEO_MODES = [
+  { id: 'highlight', label: 'Highlight Reel', icon: Zap,         desc: 'Best viral moments auto-selected' },
+  { id: 'tutorial',  label: 'Tutorial',       icon: BookOpen,    desc: 'Step-by-step teaching clips' },
+  { id: 'story',     label: 'Story',          icon: MonitorPlay, desc: 'Narrative arc short' },
+  { id: 'auto',      label: 'AI Decides',     icon: Sparkles,    desc: 'Gemini picks the best format' },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
 export default function CreateVideoPage() {
   const router = useRouter();
 
-  // ── State ──────────────────────────────────────────────────────────
-  const [isRecording, setIsRecording]           = useState(false);
-  const [recordedUrl, setRecordedUrl]           = useState<string | null>(null);
-  const [recordedBlob, setRecordedBlob]         = useState<Blob | null>(null);
-  const [seconds, setSeconds]                   = useState(0);
-  const [cameraReady, setCameraReady]           = useState(false);
-  const [gestureReady, setGestureReady]         = useState(false);   // AI loaded & warmed up
-  const [gestureFlash, setGestureFlash]         = useState<'NONE' | 'START' | 'STOP'>('NONE');
-  const [topic, setTopic]                       = useState('');
-  const [isListeningTopic, setIsListeningTopic] = useState(false);
-  const [transcript, setTranscript]             = useState('');
-  const [description, setDescription]           = useState('');
-  const [isGenAI, setIsGenAI]                   = useState(false);
-  const [isSaving, setIsSaving]                 = useState(false);
-  const [cameraError, setCameraError]           = useState('');
+  // ── Stage ─────────────────────────────────────────────────────────────────
+  const [stage, setStage]             = useState<Stage>('choose');
 
-  // ── Refs (no re-render needed) ─────────────────────────────────────
-  const videoRef       = useRef<HTMLVideoElement>(null);
-  const canvasRef      = useRef<HTMLCanvasElement | null>(null);
-  const streamRef      = useRef<MediaStream | null>(null);
-  const recorderRef    = useRef<MediaRecorder | null>(null);
-  const chunksRef      = useRef<Blob[]>([]);
-  const timerRef       = useRef<any>(null);
-  const rafRef         = useRef<number | null>(null);
-  const handsRef       = useRef<any>(null);
-  const isRecordingRef = useRef(false);
-  const lastTriggerRef = useRef(0);
-  const speechRef      = useRef<any>(null);
-  const transcriptRef  = useRef('');     // live ref for transcript
+  // ── Record state ──────────────────────────────────────────────────────────
+  const [recordState, setRecordState] = useState<RecordState>('idle');
+  const [countdown, setCountdown]     = useState(3);
+  const [seconds, setSeconds]         = useState(0);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [gestureReady, setGestureReady] = useState(false);
+  const [gestureHint, setGestureHint] = useState('');
+  const [cameraError, setCameraError] = useState('');
 
-  useEffect(() => { isRecordingRef.current = isRecording; }, [isRecording]);
-  useEffect(() => { transcriptRef.current  = transcript;   }, [transcript]);
+  // ── Source video ──────────────────────────────────────────────────────────
+  const [sourceBlob, setSourceBlob]   = useState<Blob | null>(null);
+  const [sourceUrl, setSourceUrl]     = useState<string | null>(null);
+  const [uploadFile, setUploadFile]   = useState<File | null>(null);
+  const [isDragOver, setIsDragOver]   = useState(false);
 
-  // ── Timer ──────────────────────────────────────────────────────────
+  // ── Vediomodel pipeline ───────────────────────────────────────────────────
+  const [sessionId, setSessionId]     = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [subject, setSubject]         = useState('');
+  const [selectedMode, setSelectedMode] = useState('highlight');
+  const [focusTopic, setFocusTopic]   = useState('');
+  const [jobId, setJobId]             = useState<string | null>(null);
+  const [jobProgress, setJobProgress] = useState(0);
+  const [jobStep, setJobStep]         = useState('');
+  const [jobError, setJobError]       = useState('');
+
+  // ── Output clips ──────────────────────────────────────────────────────────
+  const [clips, setClips]             = useState<any[]>([]);
+  const [activeClip, setActiveClip]   = useState(0);
+  const [isSaving, setIsSaving]       = useState(false);
+  const [saved, setSaved]             = useState(false);
+
+  // ── Analyze progress ──────────────────────────────────────────────────────
+  const [analyzeProgress, setAnalyzeProgress] = useState(0);
+  const [analyzeStep, setAnalyzeStep]  = useState('');
+  const [analyzeError, setAnalyzeError] = useState('');
+
+  // ── Refs ──────────────────────────────────────────────────────────────────
+  const videoRef      = useRef<HTMLVideoElement>(null);
+  const canvasRef     = useRef<HTMLCanvasElement | null>(null);
+  const streamRef     = useRef<MediaStream | null>(null);
+  const recorderRef   = useRef<MediaRecorder | null>(null);
+  const chunksRef     = useRef<Blob[]>([]);
+  const timerRef      = useRef<any>(null);
+  const rafRef        = useRef<number | null>(null);
+  const handsRef      = useRef<any>(null);
+  const lastGestureRef = useRef(0);
+  const recordStateRef = useRef<RecordState>('idle');
+  const shakeHistRef  = useRef<ShakeHistory[]>([]);
+  const fileInputRef  = useRef<HTMLInputElement>(null);
+  const pollRef       = useRef<any>(null);
+
+  useEffect(() => { recordStateRef.current = recordState; }, [recordState]);
+
+  // ─── Recording timer ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (isRecording) {
-      setSeconds(0);
+    if (recordState === 'recording') {
       timerRef.current = setInterval(() => setSeconds(s => s + 1), 1000);
     } else {
       clearInterval(timerRef.current);
     }
     return () => clearInterval(timerRef.current);
-  }, [isRecording]);
+  }, [recordState]);
 
-  // ── One-time migration: strip old base64 video blobs from localStorage ──
-  // Keeps all metadata (title, description, date) — only removes large video data
+  // ─── Boot camera + MediaPipe (only when entering record stage) ────────────
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('silverhands_recorded_videos');
-      if (raw) {
-        const entries = JSON.parse(raw);
-        const cleaned = entries.map((v: any) => {
-          const { videoUrl, videoData, ...meta } = v;
-          return meta;  // keep id, topic, description, recordedAt, creatorName
-        });
-        localStorage.setItem('silverhands_recorded_videos', JSON.stringify(cleaned));
-      }
-    } catch {
-      // If still too large, just clear the key
-      localStorage.removeItem('silverhands_recorded_videos');
-    }
-  }, []);
-
-  // ── Boot: camera + MediaPipe (auto-start, no toggle) ──────────────
-  useEffect(() => {
+    if (stage !== 'record') return;
     let alive = true;
 
-    const boot = async () => {
-      // 1. Get camera stream
+    (async () => {
+      // 1. Request camera permission
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -106,52 +139,42 @@ export default function CreateVideoPage() {
           s.onload = () => ok(); s.onerror = () => ok();
           document.body.appendChild(s);
         });
-
         await load('https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js');
-
         if (!alive || !window.Hands) return;
 
         const hands = new window.Hands({
-          locateFile: (f: string) =>
-            f.startsWith('http') ? f : `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`,
+          locateFile: (f: string) => f.startsWith('http') ? f : `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`,
         });
-        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.6 });
+        hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.65, minTrackingConfidence: 0.55 });
         hands.onResults(onHandResults);
         await hands.initialize();
         handsRef.current = hands;
-
-        // 3-second warm-up before gestures go live
-        lastTriggerRef.current = Date.now() + 3000;
+        lastGestureRef.current = Date.now() + 3000; // 3s warm-up
         setTimeout(() => { if (alive) setGestureReady(true); }, 3200);
-
-        // 3. Start RAF frame-feed loop (never uses window.Camera, stream is safe)
         startRAFLoop();
       } catch (e) {
-        console.warn('MediaPipe load warning:', e);
-        // Camera still works; gestures just won't be available
+        console.warn('MediaPipe warning:', e);
       }
-    };
-
-    boot();
+    })();
 
     return () => {
       alive = false;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [stage]);
 
-  // ── RAF loop: feed frames to MediaPipe from hidden canvas ──────────
+  // ─── RAF loop ─────────────────────────────────────────────────────────────
   const startRAFLoop = useCallback(() => {
     if (!canvasRef.current) {
       const c = document.createElement('canvas');
       c.width = 320; c.height = 240;
       canvasRef.current = c;
     }
-    const canvas = canvasRef.current;
+    const canvas = canvasRef.current!;
     const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-
     const loop = async () => {
       if (videoRef.current && videoRef.current.readyState >= 2 && handsRef.current) {
         ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
@@ -162,413 +185,728 @@ export default function CreateVideoPage() {
     rafRef.current = requestAnimationFrame(loop);
   }, []);
 
-  // ── MediaPipe result handler ───────────────────────────────────────
+  // ─── Gesture handler ──────────────────────────────────────────────────────
   const onHandResults = useCallback((results: any) => {
     const now = Date.now();
-    if (now < lastTriggerRef.current) return;           // warm-up or cooldown
-    if (!results.multiHandLandmarks?.length) return;
+    if (now < lastGestureRef.current) return;
 
-    const lm = results.multiHandLandmarks[0];
+    // Update shake history every frame
+    shakeHistRef.current = pushShakeHistory(results, shakeHistRef.current);
 
-    const thumbTip = lm[4], thumbIp = lm[3];
-    const idxTip   = lm[8],  idxPip = lm[6];
-    const midTip   = lm[12], midPip = lm[10];
-    const rngTip   = lm[16], rngPip = lm[14];
-    const pkyTip   = lm[20], pkyPip = lm[18];
-    const wrist    = lm[0];
+    const rs = recordStateRef.current;
 
-    // Extended = tip clearly above PIP
-    const idxExt = idxTip.y < idxPip.y - 0.04;
-    const midExt = midTip.y < midPip.y - 0.04;
-    const rngExt = rngTip.y < rngPip.y - 0.04;
-    const pkyExt = pkyTip.y < pkyPip.y - 0.04;
-
-    // Curled = tip clearly below PIP
-    const idxCurl = idxTip.y > idxPip.y + 0.03;
-    const midCurl = midTip.y > midPip.y + 0.03;
-    const rngCurl = rngTip.y > rngPip.y + 0.03;
-    const pkyCurl = pkyTip.y > pkyPip.y + 0.03;
-
-    // Thumb pointing up
-    const thumbUp = thumbTip.y < thumbIp.y - 0.04 && thumbTip.y < wrist.y - 0.08;
-
-    const isThumbsUp  = thumbUp && idxCurl && midCurl && rngCurl && pkyCurl;
-    const isOpenPalm  = idxExt  && midExt  && rngExt  && pkyExt;
-
-    if (isThumbsUp && !isRecordingRef.current) {
-      lastTriggerRef.current = now + 3000;   // 3-second cooldown
-      startRecording();
-    } else if (isOpenPalm && isRecordingRef.current) {
-      lastTriggerRef.current = now + 3000;
-      stopRecording();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ── Recording ──────────────────────────────────────────────────────
-  const startRecording = useCallback(() => {
-    if (!streamRef.current || isRecordingRef.current) return;
-
-    setRecordedUrl(null);
-    setRecordedBlob(null);
-    setTranscript('');
-    setDescription('');
-    chunksRef.current = [];
-
-    try {
-      const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9'
-                 : MediaRecorder.isTypeSupported('video/webm')            ? 'video/webm'
-                 : '';
-      const rec = new MediaRecorder(streamRef.current, mime ? { mimeType: mime } : undefined);
-
-      rec.ondataavailable = e => { if (e.data?.size > 0) chunksRef.current.push(e.data); };
-      rec.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'video/webm' });
-        setRecordedBlob(blob);
-        setRecordedUrl(URL.createObjectURL(blob));
-        stopSpeechAndGenerate();
-      };
-
-      rec.start(200);
-      recorderRef.current = rec;
-      setIsRecording(true);
-      startSpeech();
-      setGestureFlash('START');
-      setTimeout(() => setGestureFlash('NONE'), 2000);
-      voiceService.speak('Recording started!', 'en-IN');
-    } catch (err) {
-      console.error('MediaRecorder error:', err);
-      alert('Recording failed. Please reload the page and try again.');
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const stopRecording = useCallback(() => {
-    if (recorderRef.current?.state === 'recording') recorderRef.current.stop();
-    setIsRecording(false);
-    setGestureFlash('STOP');
-    setTimeout(() => setGestureFlash('NONE'), 2000);
-    voiceService.speak('Video saved!', 'en-IN');
-  }, []);
-
-  // ── Speech recognition ─────────────────────────────────────────────
-  const startSpeech = () => {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) return;
-    try {
-      if (speechRef.current) { try { speechRef.current.stop(); } catch (_) {} }
-      const r = new SR();
-      r.continuous = true; r.interimResults = false; r.lang = 'en-IN';
-      r.onresult = (e: any) => {
-        let t = '';
-        for (let i = e.resultIndex; i < e.results.length; i++)
-          if (e.results[i].isFinal) t += e.results[i][0].transcript + ' ';
-        if (t.trim()) setTranscript(prev => (prev + ' ' + t).trim());
-      };
-      r.onerror = () => {};
-      r.start();
-      speechRef.current = r;
-    } catch (_) {}
-  };
-
-  const stopSpeechAndGenerate = () => {
-    if (speechRef.current) { try { speechRef.current.stop(); } catch (_) {} }
-    // Wait 1.5s for the speech recognition engine to flush its final results
-    setTimeout(() => generateAI(), 1500);
-  };
-
-  const generateAI = async (txt?: string) => {
-    // Use passed text → live transcript → topic
-    const src = (txt || transcriptRef.current || topic || '').trim();
-    if (!src) {
-      // User did not speak or enter a topic: leave description blank
-      setDescription('');
+    // BOTH THUMBS UP → start (only when idle)
+    if (rs === 'idle' && detectBothThumbs(results)) {
+      lastGestureRef.current = now + 2000;
+      setGestureHint('👍 Both thumbs up — starting in 3…');
+      startCountdown();
       return;
     }
 
-    const creatorName = getSavedProfile()?.name || 'Creator';
-    setIsGenAI(true);
+    // T-SHAPE → pause / resume (only while recording or paused)
+    if ((rs === 'recording' || rs === 'paused') && detectTshape(results)) {
+      lastGestureRef.current = now + 2000;
+      if (rs === 'recording') { pauseRecording(); setGestureHint('⏸ Paused'); }
+      else                    { resumeRecording(); setGestureHint('▶ Resumed'); }
+      setTimeout(() => setGestureHint(''), 2000);
+      return;
+    }
+
+    // BOTH OPEN PALMS + SHAKE → stop
+    if ((rs === 'recording' || rs === 'paused') && detectBothOpenShaking(results, shakeHistRef.current)) {
+      lastGestureRef.current = now + 3000;
+      setGestureHint('🛑 Stopping…');
+      stopRecording();
+      return;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ─── 3-2-1 Countdown ─────────────────────────────────────────────────────
+  const startCountdown = useCallback(() => {
+    setRecordState('countdown');
+    setCountdown(3);
+    let n = 3;
+    const iv = setInterval(() => {
+      n--;
+      if (n <= 0) {
+        clearInterval(iv);
+        beginRecording();
+      } else {
+        setCountdown(n);
+      }
+    }, 1000);
+  }, []); // eslint-disable-line
+
+  // ─── Begin actual recording ───────────────────────────────────────────────
+  const beginRecording = useCallback(() => {
+    if (!streamRef.current) return;
+    setRecordedState('idle'); // reset seconds
+    setSeconds(0);
+    chunksRef.current = [];
+
+    const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+      ? 'video/webm;codecs=vp9'
+      : MediaRecorder.isTypeSupported('video/webm') ? 'video/webm' : '';
+    const rec = new MediaRecorder(streamRef.current, mime ? { mimeType: mime } : undefined);
+    rec.ondataavailable = e => { if (e.data?.size > 0) chunksRef.current.push(e.data); };
+    rec.onstop = () => {
+      const blob = new Blob(chunksRef.current, { type: 'video/webm' });
+      setSourceBlob(blob);
+      setSourceUrl(URL.createObjectURL(blob));
+      setRecordState('done');
+      setGestureHint('');
+      // Stop camera tracks
+      streamRef.current?.getTracks().forEach(t => t.stop());
+    };
+    rec.start(200);
+    recorderRef.current = rec;
+    setRecordState('recording');
+    setGestureHint('🔴 Recording — show T-shape to pause, both open palms + shake to stop');
+    setTimeout(() => setGestureHint(''), 4000);
+  }, []);
+
+  // Helper to avoid lint errors
+  const setRecordedState = (s: RecordState) => setRecordState(s);
+
+  const pauseRecording = useCallback(() => {
+    if (recorderRef.current?.state === 'recording') {
+      recorderRef.current.pause();
+      setRecordState('paused');
+    }
+  }, []);
+
+  const resumeRecording = useCallback(() => {
+    if (recorderRef.current?.state === 'paused') {
+      recorderRef.current.resume();
+      setRecordState('recording');
+    }
+  }, []);
+
+  const stopRecording = useCallback(() => {
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+      recorderRef.current.stop();
+    }
+    setRecordState('done');
+  }, []);
+
+  const fmt = (s: number) =>
+    `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+
+  // ─── Upload file handling ─────────────────────────────────────────────────
+  const handleFileSelect = (file: File) => {
+    if (!file.type.startsWith('video/')) return;
+    setUploadFile(file);
+    setSourceBlob(file);
+    setSourceUrl(URL.createObjectURL(file));
+  };
+
+  // ─── Stage 2: Analyze source video via vediomodel ────────────────────────
+  const handleAnalyze = async () => {
+    setStage('confirm');
+    setAnalyzeProgress(5);
+    setAnalyzeStep('Preparing video…');
+    setAnalyzeError('');
+
     try {
-      const res = await fetch('/api/ai/generate-listing', {
+      const blob = sourceBlob!;
+      const fd = new FormData();
+      fd.append('file', blob, uploadFile?.name || 'recorded.webm');
+
+      setAnalyzeProgress(15);
+      setAnalyzeStep('Uploading to AI pipeline…');
+
+      // Poll analyze status while waiting
+      let statusPollId: any = null;
+      const resp = fetch('/api/videomodel/analyze', { method: 'POST', body: fd });
+
+      // Simulate progress while waiting for the long analyze call
+      let fakePct = 15;
+      statusPollId = setInterval(() => {
+        fakePct = Math.min(fakePct + 3, 88);
+        setAnalyzeProgress(fakePct);
+      }, 1000);
+
+      const r = await resp;
+      clearInterval(statusPollId);
+
+      if (!r.ok) {
+        const err = await r.json();
+        throw new Error(err.error || 'Analysis failed');
+      }
+
+      const data = await r.json();
+      setSessionId(data.session_id);
+      setSuggestions(data.suggestions || []);
+      setSubject(data.subject || '');
+      setFocusTopic(data.suggestions?.[0] || '');
+      setAnalyzeProgress(100);
+      setAnalyzeStep('Analysis complete!');
+      await new Promise(r => setTimeout(r, 600));
+      setStage('output-choose');
+    } catch (err: any) {
+      setAnalyzeError(err.message || 'Analysis failed. Is the video backend running?');
+      setAnalyzeProgress(0);
+    }
+  };
+
+  // ─── Stage 3: Submit processing job ──────────────────────────────────────
+  const handleProcess = async () => {
+    if (!sessionId) return;
+    setStage('processing');
+    setJobProgress(0);
+    setJobStep('Submitting job…');
+    setJobError('');
+
+    try {
+      const r = await fetch('/api/videomodel/process', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'video_description', transcript: src, creatorName }),
+        body: JSON.stringify({ session_id: sessionId, mode: selectedMode, focus: focusTopic }),
       });
-      const data = await res.json();
-      if (data.success && data.description) {
-        setDescription(data.description);
-        if (data.title) setTopic(data.title);
-      } else {
-        setDescription(`In this video lesson, ${creatorName} demonstrates: "${src}".`);
-      }
-    } catch {
-      setDescription(`In this video lesson, ${creatorName} demonstrates: "${src}".`);
-    } finally {
-      setIsGenAI(false);
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Could not start processing');
+      setJobId(data.job_id);
+      pollJobStatus(data.job_id);
+    } catch (err: any) {
+      setJobError(err.message);
     }
   };
 
-  const toggleTopic = () => {
-    if (isListeningTopic) {
-      voiceService.stopListening();
-      setIsListeningTopic(false);
-    } else {
-      setIsListeningTopic(true);
-      voiceService.startListening({
-        onResult: r => { if (r.transcript) setTopic(r.transcript); },
-        onError:  () => setIsListeningTopic(false),
-        onEnd:    () => setIsListeningTopic(false),
-      });
-    }
-  };
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    const profile = getSavedProfile();
-    const finalT  = topic.trim() || 'Senior Lesson Video';
-    const finalD  = description || transcript || finalT;
-    const videoId = 'vid_' + Date.now();
-
-    // ── 1. LocalStorage: metadata ONLY (no video blob — videos are too large) ──
-    try {
-      const existing = JSON.parse(localStorage.getItem('silverhands_recorded_videos') || '[]');
-      // Keep only last 10 entries and strip any old videoUrl blobs to prevent buildup
-      const trimmed = existing.slice(0, 9).map((v: any) => ({ ...v, videoUrl: undefined }));
-      trimmed.unshift({
-        id: videoId,
-        topic: finalT,
-        description: finalD,
-        recordedAt: new Date().toLocaleDateString(),
-        creatorName: profile?.name,
-        // No videoUrl stored in localStorage — video lives in PostgreSQL
-      });
-      localStorage.setItem('silverhands_recorded_videos', JSON.stringify(trimmed));
-    } catch (lsErr) {
-      // If localStorage is still full, clear old videos and try once more
+  const pollJobStatus = useCallback((jId: string) => {
+    let attempts = 0;
+    const MAX = 180; // 6 min at 2s intervals
+    const poll = async () => {
+      if (attempts++ > MAX) { setJobError('Processing timed out. Try again.'); return; }
       try {
-        localStorage.removeItem('silverhands_recorded_videos');
-        localStorage.setItem('silverhands_recorded_videos', JSON.stringify([{
-          id: videoId, topic: finalT, description: finalD,
-          recordedAt: new Date().toLocaleDateString(), creatorName: profile?.name,
-        }]));
-      } catch {}
-    }
+        const r = await fetch(`/api/videomodel/status/${jId}`);
+        const data = await r.json();
+        setJobProgress(data.progress || 0);
+        setJobStep(data.current_step || 'Processing…');
 
-    // ── 2. PostgreSQL: save full video as base64 ──
+        if (data.status === 'completed' && data.result?.clips) {
+          setClips(data.result.clips);
+          setStage('preview');
+          return;
+        }
+        if (data.status === 'failed') {
+          setJobError('Processing failed. ' + (data.logs?.slice(-1)?.[0] || ''));
+          return;
+        }
+      } catch { /* network glitch, keep polling */ }
+      pollRef.current = setTimeout(poll, 2000);
+    };
+    poll();
+  }, []);
+
+  useEffect(() => () => clearTimeout(pollRef.current), []);
+
+  // ─── Save generated clip to DB ────────────────────────────────────────────
+  const handleSave = async () => {
+    const clip = clips[activeClip];
+    if (!clip) return;
+    setIsSaving(true);
     try {
-      const b64 = recordedBlob
-        ? await new Promise<string>(res => {
-            const fr = new FileReader();
-            fr.onloadend = () => res(fr.result as string);
-            fr.onerror   = () => res('');
-            fr.readAsDataURL(recordedBlob);
-          })
-        : null;
-
+      const profile = getSavedProfile();
       await fetch('/api/videos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          topic: finalT,
-          description: finalD,
-          videoUrl: recordedUrl || '',
-          videoData: b64,
+          topic: clip.title || subject || 'SilverHands Video',
+          description: clip.hook_text || clip.title || '',
+          videoUrl: clip.video_url || '',
           creatorName: profile?.name,
         }),
       });
-    } catch (dbErr) {
-      console.warn('Video DB save notice:', dbErr);
-    }
-
-    voiceService.speak('Your video has been saved!', 'en-IN');
+      setSaved(true);
+    } catch { /* silent */ }
     setIsSaving(false);
-    setTimeout(() => router.push('/profile'), 800);
   };
 
-  const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-
-  // ── UI ─────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  //  UI
+  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="bg-[#FFFDF7] min-h-screen flex flex-col" style={{ fontFamily: "'Lexend', sans-serif" }}>
+    <div className="min-h-screen bg-gradient-to-br from-[#0a0f1e] via-[#0d1b3e] to-[#031635] text-white"
+      style={{ fontFamily: "'Lexend', sans-serif" }}>
 
       {/* Header */}
-      <header className="bg-white border-b-4 border-[#FDBC13] shadow-sm">
-        <div className="max-w-4xl mx-auto px-6 py-5 flex items-center justify-between">
+      <header className="border-b border-white/10 backdrop-blur-md bg-white/5">
+        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3">
-            <div className="w-14 h-14 bg-[#031635] rounded-2xl flex items-center justify-center text-2xl shadow-md">🤝</div>
+            <div className="w-12 h-12 bg-[#FDBC13] rounded-2xl flex items-center justify-center text-xl shadow-lg">🤝</div>
             <div>
-              <span className="font-black text-2xl text-[#031635] block">SilverHands</span>
-              <span className="text-sm font-semibold text-[#44474E] block">Video Studio</span>
+              <span className="font-black text-xl text-white block">SilverHands</span>
+              <span className="text-xs font-semibold text-[#FDBC13]">Video Studio</span>
             </div>
           </Link>
           <button onClick={() => router.push('/dashboard')}
-            className="flex items-center gap-2 px-5 py-3 bg-[#EFEEEB] hover:bg-[#E3E2E0] rounded-2xl text-base font-bold text-[#031635] transition">
-            <ArrowLeft className="w-5 h-5" /> Back
+            className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-sm font-bold text-white transition border border-white/10">
+            <ArrowLeft className="w-4 h-4" /> Back
           </button>
         </div>
       </header>
 
-      <main className="flex-1 max-w-4xl mx-auto w-full px-6 py-10 space-y-8">
+      <main className="max-w-5xl mx-auto px-6 py-10">
 
-        {/* Title */}
-        <div className="text-center space-y-2">
-          <h1 className="text-4xl md:text-5xl font-black text-[#031635]">🎬 Record Your Lesson</h1>
-          <p className="text-xl text-[#44474E] font-semibold">
-            👍 <strong>Thumbs Up</strong> to start &nbsp;·&nbsp; ✋ <strong>Open Palm</strong> to stop
-          </p>
-        </div>
+        {/* ── Stage 0: Choose ──────────────────────────────────────────────── */}
+        {stage === 'choose' && (
+          <div className="space-y-10">
+            <div className="text-center space-y-3">
+              <h1 className="text-5xl font-black text-white">🎬 Create Your Video</h1>
+              <p className="text-xl text-white/60 font-medium">How would you like to start?</p>
+            </div>
 
-        {cameraError && (
-          <div className="p-6 bg-rose-50 border-2 border-rose-400 rounded-2xl text-rose-800 font-bold text-center text-lg">
-            ⚠️ {cameraError}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Record */}
+              <button onClick={() => setStage('record')}
+                className="group relative p-10 bg-gradient-to-br from-emerald-600/30 to-emerald-800/20 border-2 border-emerald-500/40 hover:border-emerald-400 rounded-3xl text-left transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-emerald-500/20">
+                <div className="text-6xl mb-6">🎥</div>
+                <h2 className="text-2xl font-black text-white mb-2">Record a Video</h2>
+                <p className="text-white/60 font-medium leading-relaxed">Use your camera with gesture controls. Hands-free recording designed for creators.</p>
+                <div className="mt-6 flex flex-wrap gap-2">
+                  {['👍👍 Start', '⏸ Pause', '🖐🖐 Stop'].map(g => (
+                    <span key={g} className="px-3 py-1 bg-emerald-500/20 rounded-full text-xs font-bold text-emerald-300 border border-emerald-500/30">{g}</span>
+                  ))}
+                </div>
+                <ChevronRight className="absolute right-6 top-1/2 -translate-y-1/2 w-8 h-8 text-emerald-400 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+              </button>
+
+              {/* Upload */}
+              <button onClick={() => setStage('upload')}
+                className="group relative p-10 bg-gradient-to-br from-violet-600/30 to-violet-800/20 border-2 border-violet-500/40 hover:border-violet-400 rounded-3xl text-left transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-violet-500/20">
+                <div className="text-6xl mb-6">📁</div>
+                <h2 className="text-2xl font-black text-white mb-2">Upload a Video</h2>
+                <p className="text-white/60 font-medium leading-relaxed">Choose an existing video from your device. We&apos;ll handle the rest with AI.</p>
+                <div className="mt-6 flex flex-wrap gap-2">
+                  {['MP4', 'MOV', 'WEBM', 'AVI'].map(f => (
+                    <span key={f} className="px-3 py-1 bg-violet-500/20 rounded-full text-xs font-bold text-violet-300 border border-violet-500/30">{f}</span>
+                  ))}
+                </div>
+                <ChevronRight className="absolute right-6 top-1/2 -translate-y-1/2 w-8 h-8 text-violet-400 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+              </button>
+            </div>
           </div>
         )}
 
-        {!recordedUrl ? (
-          /* ── LIVE CAMERA VIEW ── */
+        {/* ── Stage 1A: Record ─────────────────────────────────────────────── */}
+        {stage === 'record' && (
           <div className="space-y-6">
+            <div className="flex items-center gap-4">
+              <button onClick={() => { streamRef.current?.getTracks().forEach(t => t.stop()); setStage('choose'); }}
+                className="p-2 hover:bg-white/10 rounded-xl transition"><ArrowLeft className="w-5 h-5" /></button>
+              <h1 className="text-3xl font-black">🎥 Record Your Video</h1>
+            </div>
 
-            {/* Camera box */}
-            <div className="relative w-full rounded-3xl overflow-hidden border-4 shadow-2xl"
-              style={{ aspectRatio: '16/9', background: '#0f172a',
-                borderColor: isRecording ? '#dc2626' : '#031635' }}>
+            {cameraError && (
+              <div className="p-4 bg-rose-500/20 border border-rose-500/40 rounded-2xl flex items-center gap-3 text-rose-300 font-semibold">
+                <AlertTriangle className="w-5 h-5 flex-shrink-0" /> {cameraError}
+              </div>
+            )}
 
+            {/* Camera viewport */}
+            <div className="relative w-full rounded-3xl overflow-hidden border-2 shadow-2xl"
+              style={{
+                aspectRatio: '16/9',
+                background: '#0a0f1e',
+                borderColor: recordState === 'recording' ? '#dc2626'
+                           : recordState === 'paused'    ? '#f59e0b'
+                           : '#334155',
+              }}>
               <video ref={videoRef} autoPlay playsInline muted
                 className="w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} />
 
-              {/* Gesture-ready indicator (top-left) */}
+              {/* Top-left status pill */}
               <div className="absolute top-4 left-4 z-20">
-                {!gestureReady ? (
-                  <div className="bg-black/70 text-white px-4 py-2 rounded-full text-base font-bold animate-pulse">
-                    ⏳ Getting ready…
+                {!cameraReady ? (
+                  <div className="bg-black/70 text-white px-4 py-2 rounded-full text-sm font-bold animate-pulse flex items-center gap-2">
+                    <Camera className="w-4 h-4" /> Activating camera…
                   </div>
-                ) : !isRecording ? (
-                  <div className="bg-black/70 text-white px-4 py-2 rounded-full text-base font-bold">
-                    👍 Show Thumbs Up to Record
+                ) : !gestureReady ? (
+                  <div className="bg-black/70 text-white px-4 py-2 rounded-full text-sm font-bold animate-pulse">
+                    ⏳ Loading gesture AI…
+                  </div>
+                ) : recordState === 'idle' ? (
+                  <div className="bg-black/70 text-white px-4 py-2 rounded-full text-sm font-bold">
+                    👍👍 Show Both Thumbs Up to Start
                   </div>
                 ) : null}
               </div>
 
-              {/* Recording timer (top-right) */}
-              {isRecording && (
-                <div className="absolute top-4 right-4 z-20 bg-rose-600 text-white px-5 py-2 rounded-full text-xl font-black animate-pulse shadow-lg">
-                  🔴 {fmt(seconds)}
+              {/* Timer top-right */}
+              {(recordState === 'recording' || recordState === 'paused') && (
+                <div className={`absolute top-4 right-4 z-20 px-4 py-2 rounded-full text-lg font-black shadow-lg ${
+                  recordState === 'paused' ? 'bg-amber-500 text-black' : 'bg-rose-600 text-white animate-pulse'
+                }`}>
+                  {recordState === 'paused' ? '⏸' : '🔴'} {fmt(seconds)}
                 </div>
               )}
 
-              {/* Gesture flash overlay */}
-              {gestureFlash === 'START' && (
-                <div className="absolute inset-0 bg-emerald-900/80 flex flex-col items-center justify-center z-30">
-                  <ThumbsUp className="w-28 h-28 text-[#FDBC13] animate-bounce" />
-                  <span className="text-4xl font-black text-[#FDBC13] mt-4">Recording!</span>
-                </div>
-              )}
-              {gestureFlash === 'STOP' && (
-                <div className="absolute inset-0 bg-slate-900/80 flex flex-col items-center justify-center z-30">
-                  <Hand className="w-28 h-28 text-white animate-pulse" />
-                  <span className="text-4xl font-black text-white mt-4">Saved!</span>
+              {/* 3-2-1 Countdown overlay */}
+              {recordState === 'countdown' && (
+                <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-30">
+                  <div className="text-[10rem] font-black text-[#FDBC13] leading-none animate-bounce">{countdown}</div>
+                  <div className="text-2xl font-bold text-white mt-4">Get ready…</div>
                 </div>
               )}
 
-              {/* Stop hint while recording */}
-              {isRecording && gestureFlash === 'NONE' && (
+              {/* Recording hint bottom */}
+              {gestureHint && (
                 <div className="absolute bottom-4 left-0 right-0 flex justify-center z-20">
-                  <div className="bg-black/70 text-white px-5 py-2 rounded-full text-base font-bold">
-                    ✋ Show Open Palm to Stop
+                  <div className="bg-black/80 text-white px-5 py-2 rounded-full text-sm font-bold backdrop-blur-sm">
+                    {gestureHint}
                   </div>
                 </div>
               )}
-            </div>
 
-            {/* Manual buttons (backup) */}
-            <div className="grid grid-cols-2 gap-4">
-              {!isRecording ? (
-                <button onClick={startRecording} disabled={!cameraReady}
-                  className="col-span-2 py-6 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-40 text-white text-2xl font-black rounded-2xl shadow-lg flex items-center justify-center gap-3 active:scale-95 transition">
-                  <Video className="w-8 h-8" /> Start Recording
-                </button>
-              ) : (
-                <button onClick={stopRecording}
-                  className="col-span-2 py-6 bg-rose-600 hover:bg-rose-700 text-white text-2xl font-black rounded-2xl shadow-lg flex items-center justify-center gap-3 active:scale-95 animate-pulse transition">
-                  <Square className="w-8 h-8 fill-white" /> Stop &amp; Save
-                </button>
-              )}
-            </div>
-
-            {/* Topic voice input */}
-            <div className="bg-white border-2 border-[#E3E2E0] rounded-2xl p-6 space-y-3">
-              <label className="text-lg font-extrabold text-[#031635] block">What is this video about?</label>
-              <div className="flex gap-3">
-                <input
-                  value={topic}
-                  onChange={e => setTopic(e.target.value)}
-                  placeholder="e.g. Making dal tadka"
-                  className="flex-1 px-4 py-3 border-2 border-[#E3E2E0] rounded-xl text-lg font-semibold focus:border-[#031635] outline-none"
-                />
-                <button onClick={toggleTopic}
-                  className={`px-5 py-3 rounded-xl text-base font-bold transition ${isListeningTopic ? 'bg-rose-600 text-white animate-pulse' : 'bg-[#FDBC13] text-[#261900] hover:bg-[#F3B20B]'}`}>
-                  <Mic className="w-6 h-6" />
-                </button>
-              </div>
-            </div>
-          </div>
-
-        ) : (
-          /* ── PLAYBACK & SAVE VIEW ── */
-          <div className="space-y-6">
-
-            {/* Video player */}
-            <div className="relative w-full rounded-3xl overflow-hidden border-4 border-[#031635] shadow-2xl" style={{ aspectRatio: '16/9' }}>
-              <video src={recordedUrl} controls autoPlay className="w-full h-full object-contain bg-black" />
-              <div className="absolute top-4 left-4 bg-emerald-600 text-white px-4 py-2 rounded-full text-base font-extrabold shadow-md">
-                ✓ Video Recorded
-              </div>
-            </div>
-
-            {/* AI description */}
-            <div className="bg-white border-2 border-[#031635] rounded-2xl p-6 space-y-3">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-6 h-6 text-[#FDBC13]" />
-                <span className="text-lg font-extrabold text-[#031635]">Video Description</span>
-              </div>
-              {isGenAI ? (
-                <div className="flex items-center gap-3 text-[#44474E] font-semibold text-base animate-pulse">
-                  <RefreshCw className="w-5 h-5 animate-spin" /> Writing description from your speech…
+              {/* Pause overlay */}
+              {recordState === 'paused' && (
+                <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-20 pointer-events-none">
+                  <div className="text-6xl font-black text-amber-400">⏸ PAUSED</div>
                 </div>
-              ) : (
-                <>
-                  <textarea
-                    value={description || transcript || ''}
-                    onChange={e => setDescription(e.target.value)}
-                    placeholder="Describe your lesson topic here, or speak during video recording to generate automatically..."
-                    rows={4}
-                    className="w-full p-4 bg-[#FAF9F6] border-2 border-[#E3E2E0] rounded-xl text-base font-semibold outline-none focus:border-[#031635] resize-none"
-                  />
-                  <button
-                    onClick={() => generateAI()}
-                    disabled={!topic && !transcript && !description}
-                    className="w-full py-3 bg-[#031635] hover:bg-[#1a2b4b] disabled:opacity-50 text-[#FDBC13] text-base font-bold rounded-xl flex items-center justify-center gap-2 transition"
-                  >
-                    <Sparkles className="w-5 h-5" /> Rewrite with AI
-                  </button>
-                </>
               )}
             </div>
 
-            {/* Action buttons */}
-            <div className="grid grid-cols-2 gap-4">
-              <button onClick={handleSave} disabled={isSaving}
-                className="py-6 bg-[#031635] hover:bg-[#1a2b4b] disabled:opacity-60 text-[#FDBC13] text-xl font-black rounded-2xl shadow-lg flex items-center justify-center gap-3 active:scale-95 transition">
-                <Save className="w-7 h-7" /> {isSaving ? 'Saving…' : 'Save Video'}
+            {/* Gesture guide */}
+            <div className="grid grid-cols-3 gap-4">
+              {[
+                { emoji: '👍👍', label: 'Both Thumbs Up', action: 'Start Recording', color: 'emerald' },
+                { emoji: '🤚', label: 'T-Shape Hands', action: 'Pause / Resume', color: 'amber' },
+                { emoji: '🖐🖐', label: 'Both Palms + Shake', action: 'Stop & Finalise', color: 'rose' },
+              ].map(g => (
+                <div key={g.label} className={`p-4 rounded-2xl bg-${g.color}-500/10 border border-${g.color}-500/20 text-center`}>
+                  <div className="text-3xl mb-2">{g.emoji}</div>
+                  <div className="text-xs font-bold text-white/80">{g.label}</div>
+                  <div className={`text-xs font-semibold text-${g.color}-400 mt-1`}>{g.action}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Manual fallback buttons */}
+            <div className="grid grid-cols-3 gap-3">
+              <button onClick={startCountdown}
+                disabled={recordState !== 'idle' || !cameraReady}
+                className="py-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 text-white font-black rounded-2xl flex items-center justify-center gap-2 transition">
+                <Video className="w-5 h-5" /> Start
               </button>
-              <button onClick={() => { setRecordedUrl(null); setRecordedBlob(null); }}
-                className="py-6 bg-[#EFEEEB] hover:bg-[#E3E2E0] text-[#031635] text-xl font-black rounded-2xl shadow-md flex items-center justify-center gap-3 active:scale-95 transition border-2 border-[#E3E2E0]">
-                <RotateCcw className="w-7 h-7" /> Record Again
+              <button onClick={recordState === 'paused' ? resumeRecording : pauseRecording}
+                disabled={recordState !== 'recording' && recordState !== 'paused'}
+                className="py-4 bg-amber-500 hover:bg-amber-400 disabled:opacity-30 text-black font-black rounded-2xl flex items-center justify-center gap-2 transition">
+                {recordState === 'paused' ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}
+                {recordState === 'paused' ? 'Resume' : 'Pause'}
+              </button>
+              <button onClick={stopRecording}
+                disabled={recordState !== 'recording' && recordState !== 'paused'}
+                className="py-4 bg-rose-600 hover:bg-rose-500 disabled:opacity-30 text-white font-black rounded-2xl flex items-center justify-center gap-2 transition">
+                <Square className="w-5 h-5 fill-white" /> Stop
+              </button>
+            </div>
+
+            {/* Recorded — proceed */}
+            {recordState === 'done' && sourceUrl && (
+              <div className="space-y-4">
+                <div className="p-4 bg-emerald-500/10 border border-emerald-500/40 rounded-2xl flex items-center gap-3">
+                  <CheckCircle className="w-6 h-6 text-emerald-400" />
+                  <span className="font-bold text-emerald-300">Video recorded successfully! Review it below.</span>
+                </div>
+                <video src={sourceUrl} controls className="w-full rounded-2xl border border-white/10" />
+                <div className="flex gap-3">
+                  <button onClick={handleAnalyze}
+                    className="flex-1 py-5 bg-[#FDBC13] hover:bg-[#F3B20B] text-black font-black text-xl rounded-2xl flex items-center justify-center gap-3 transition shadow-lg shadow-[#FDBC13]/20">
+                    <Sparkles className="w-6 h-6" /> Process with AI
+                  </button>
+                  <button onClick={() => { setRecordState('idle'); setSourceBlob(null); setSourceUrl(null); setSeconds(0); }}
+                    className="px-6 py-5 bg-white/10 hover:bg-white/20 text-white font-bold rounded-2xl flex items-center gap-2 transition">
+                    <RotateCcw className="w-5 h-5" /> Redo
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Stage 1B: Upload ─────────────────────────────────────────────── */}
+        {stage === 'upload' && (
+          <div className="space-y-6">
+            <div className="flex items-center gap-4">
+              <button onClick={() => setStage('choose')} className="p-2 hover:bg-white/10 rounded-xl transition">
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <h1 className="text-3xl font-black">📁 Upload a Video</h1>
+            </div>
+
+            {/* Drop zone */}
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
+              onDragLeave={() => setIsDragOver(false)}
+              onDrop={e => { e.preventDefault(); setIsDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleFileSelect(f); }}
+              className={`w-full rounded-3xl border-2 border-dashed flex flex-col items-center justify-center gap-4 cursor-pointer transition-all
+                ${isDragOver ? 'border-violet-400 bg-violet-500/10 scale-[1.01]' : 'border-white/20 bg-white/5 hover:border-violet-400/60 hover:bg-violet-500/5'}
+              `}
+              style={{ minHeight: '320px' }}>
+              <div className="text-6xl">{isDragOver ? '📂' : '📁'}</div>
+              <div className="text-xl font-black text-white">Drag & drop your video here</div>
+              <div className="text-white/50 font-medium">or click to browse files</div>
+              <div className="flex gap-2 mt-2">
+                {['MP4', 'MOV', 'WEBM', 'AVI', 'MKV'].map(f => (
+                  <span key={f} className="px-3 py-1 bg-violet-500/20 rounded-full text-xs font-bold text-violet-300 border border-violet-500/30">{f}</span>
+                ))}
+              </div>
+              <input ref={fileInputRef} type="file" accept="video/*" className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleFileSelect(f); }} />
+            </div>
+
+            {/* Preview */}
+            {sourceUrl && uploadFile && (
+              <div className="space-y-4">
+                <div className="p-4 bg-violet-500/10 border border-violet-500/40 rounded-2xl flex items-center gap-3">
+                  <CheckCircle className="w-6 h-6 text-violet-400" />
+                  <span className="font-bold text-violet-300">{uploadFile.name} — {(uploadFile.size / 1024 / 1024).toFixed(1)} MB</span>
+                </div>
+                <video src={sourceUrl} controls className="w-full rounded-2xl border border-white/10" />
+                <div className="flex gap-3">
+                  <button onClick={handleAnalyze}
+                    className="flex-1 py-5 bg-[#FDBC13] hover:bg-[#F3B20B] text-black font-black text-xl rounded-2xl flex items-center justify-center gap-3 transition shadow-lg shadow-[#FDBC13]/20">
+                    <Sparkles className="w-6 h-6" /> Process with AI
+                  </button>
+                  <button onClick={() => { setUploadFile(null); setSourceBlob(null); setSourceUrl(null); }}
+                    className="px-6 py-5 bg-white/10 hover:bg-white/20 text-white font-bold rounded-2xl flex items-center gap-2 transition">
+                    <RotateCcw className="w-5 h-5" /> Change
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Stage 2: Confirm / Analyzing ─────────────────────────────────── */}
+        {stage === 'confirm' && (
+          <div className="space-y-8 flex flex-col items-center text-center">
+            <h1 className="text-3xl font-black">🧠 Analysing with AI</h1>
+            <p className="text-white/60 font-medium max-w-md">
+              Transcribing speech, detecting scenes, and understanding your video with Gemini…
+            </p>
+
+            {analyzeError ? (
+              <div className="w-full max-w-lg p-6 bg-rose-500/10 border border-rose-500/40 rounded-2xl space-y-4">
+                <div className="flex items-center gap-3 text-rose-300 font-bold">
+                  <AlertTriangle className="w-6 h-6" /> {analyzeError}
+                </div>
+                <p className="text-white/50 text-sm">Make sure the Python backend is running: <code className="bg-white/10 px-2 py-0.5 rounded">npm run video:start</code></p>
+                <button onClick={() => setStage(uploadFile ? 'upload' : 'record')}
+                  className="w-full py-3 bg-white/10 hover:bg-white/20 rounded-xl font-bold transition">
+                  ← Go Back
+                </button>
+              </div>
+            ) : (
+              <div className="w-full max-w-lg space-y-6">
+                {/* Progress bar */}
+                <div className="space-y-3">
+                  <div className="h-3 bg-white/10 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-[#FDBC13] to-emerald-400 rounded-full transition-all duration-500"
+                      style={{ width: `${analyzeProgress}%` }} />
+                  </div>
+                  <p className="text-sm font-semibold text-white/70 animate-pulse">{analyzeStep}</p>
+                </div>
+
+                {/* Steps visual */}
+                <div className="grid grid-cols-3 gap-4">
+                  {[
+                    { icon: '🎙', label: 'Transcription', done: analyzeProgress > 30 },
+                    { icon: '🎬', label: 'Scene Detection', done: analyzeProgress > 60 },
+                    { icon: '✨', label: 'AI Analysis', done: analyzeProgress > 85 },
+                  ].map(s => (
+                    <div key={s.label} className={`p-4 rounded-2xl border transition-all ${s.done ? 'border-emerald-500/50 bg-emerald-500/10' : 'border-white/10 bg-white/5'}`}>
+                      <div className="text-2xl mb-1">{s.done ? '✅' : s.icon}</div>
+                      <div className={`text-xs font-bold ${s.done ? 'text-emerald-300' : 'text-white/50'}`}>{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Stage 3: Choose output type ───────────────────────────────────── */}
+        {stage === 'output-choose' && (
+          <div className="space-y-8">
+            <div className="flex items-center gap-4">
+              <button onClick={() => setStage(uploadFile ? 'upload' : 'record')}
+                className="p-2 hover:bg-white/10 rounded-xl transition"><ArrowLeft className="w-5 h-5" /></button>
+              <div>
+                <h1 className="text-3xl font-black">🎨 Choose Video Style</h1>
+                {subject && <p className="text-white/60 text-sm mt-1">Detected: <span className="text-[#FDBC13] font-semibold">{subject}</span></p>}
+              </div>
+            </div>
+
+            {/* AI Suggestions */}
+            {suggestions.length > 0 && (
+              <div className="space-y-3">
+                <label className="text-sm font-bold text-white/60 uppercase tracking-widest">AI Detected Topics</label>
+                <div className="flex flex-wrap gap-2">
+                  {suggestions.map(s => (
+                    <button key={s} onClick={() => setFocusTopic(s)}
+                      className={`px-4 py-2 rounded-full text-sm font-bold border transition ${
+                        focusTopic === s
+                          ? 'bg-[#FDBC13] text-black border-[#FDBC13]'
+                          : 'bg-white/5 text-white/70 border-white/10 hover:border-[#FDBC13]/50'
+                      }`}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Custom focus */}
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-white/60 uppercase tracking-widest">Custom Focus Topic (optional)</label>
+              <input value={focusTopic} onChange={e => setFocusTopic(e.target.value)}
+                placeholder="e.g. How to make biryani, Embroidery basics…"
+                className="w-full px-4 py-3 bg-white/5 border border-white/10 focus:border-[#FDBC13] rounded-2xl text-white font-semibold outline-none transition placeholder:text-white/30" />
+            </div>
+
+            {/* Mode cards */}
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-white/60 uppercase tracking-widest">Output Style</label>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {VIDEO_MODES.map(m => {
+                  const Icon = m.icon;
+                  return (
+                    <button key={m.id} onClick={() => setSelectedMode(m.id)}
+                      className={`p-5 rounded-2xl border-2 text-left transition-all ${
+                        selectedMode === m.id
+                          ? 'border-[#FDBC13] bg-[#FDBC13]/10 scale-[1.03]'
+                          : 'border-white/10 bg-white/5 hover:border-white/30'
+                      }`}>
+                      <Icon className={`w-7 h-7 mb-3 ${selectedMode === m.id ? 'text-[#FDBC13]' : 'text-white/50'}`} />
+                      <div className="font-black text-sm text-white">{m.label}</div>
+                      <div className="text-xs text-white/50 mt-1">{m.desc}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <button onClick={handleProcess}
+              className="w-full py-6 bg-gradient-to-r from-[#FDBC13] to-orange-400 hover:opacity-90 text-black font-black text-2xl rounded-2xl flex items-center justify-center gap-3 transition shadow-2xl shadow-[#FDBC13]/20">
+              <Scissors className="w-7 h-7" /> Generate Short Video
+            </button>
+          </div>
+        )}
+
+        {/* ── Stage 3b: Processing ─────────────────────────────────────────── */}
+        {stage === 'processing' && (
+          <div className="flex flex-col items-center text-center space-y-8">
+            <h1 className="text-3xl font-black">⚙️ Generating Your Short</h1>
+            <p className="text-white/60 font-medium max-w-md">
+              FFmpeg is extracting and reframing your best moments into a vertical 9:16 short…
+            </p>
+
+            {jobError ? (
+              <div className="w-full max-w-lg p-6 bg-rose-500/10 border border-rose-500/40 rounded-2xl space-y-4">
+                <div className="flex items-center gap-3 text-rose-300 font-bold">
+                  <AlertTriangle className="w-6 h-6" /> {jobError}
+                </div>
+                <button onClick={() => setStage('output-choose')}
+                  className="w-full py-3 bg-white/10 hover:bg-white/20 rounded-xl font-bold transition">
+                  ← Back to Options
+                </button>
+              </div>
+            ) : (
+              <div className="w-full max-w-lg space-y-6">
+                <div className="space-y-3">
+                  <div className="flex justify-between text-sm font-semibold text-white/60">
+                    <span>{jobStep}</span>
+                    <span>{jobProgress}%</span>
+                  </div>
+                  <div className="h-4 bg-white/10 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-violet-500 to-[#FDBC13] rounded-full transition-all duration-700"
+                      style={{ width: `${jobProgress}%` }} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  {[
+                    { label: 'Extracting clips', done: jobProgress > 36 },
+                    { label: 'Vertical reframe', done: jobProgress > 62 },
+                    { label: 'Adding subtitles', done: jobProgress > 85 },
+                    { label: 'Finalising', done: jobProgress >= 95 },
+                  ].map(s => (
+                    <div key={s.label} className={`flex items-center gap-2 p-3 rounded-xl ${s.done ? 'bg-emerald-500/10 text-emerald-300' : 'bg-white/5 text-white/40'}`}>
+                      {s.done ? <CheckCircle className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />}
+                      {s.label}
+                    </div>
+                  ))}
+                </div>
+
+                <p className="text-white/30 text-xs">This may take 2–5 minutes depending on video length.</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Stage 4: Preview ─────────────────────────────────────────────── */}
+        {stage === 'preview' && clips.length > 0 && (
+          <div className="space-y-6">
+            <h1 className="text-3xl font-black text-center">🎉 Your Shorts Are Ready!</h1>
+
+            {/* Clip selector */}
+            {clips.length > 1 && (
+              <div className="flex gap-3 overflow-x-auto pb-2">
+                {clips.map((c, i) => (
+                  <button key={i} onClick={() => setActiveClip(i)}
+                    className={`flex-shrink-0 px-5 py-2 rounded-full font-bold text-sm border transition ${
+                      activeClip === i ? 'bg-[#FDBC13] text-black border-[#FDBC13]' : 'bg-white/5 text-white/70 border-white/10 hover:border-white/30'
+                    }`}>
+                    Clip {i + 1} {c.title ? `— ${c.title.slice(0, 20)}` : ''}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Active clip */}
+            {clips[activeClip]?.video_url && (
+              <div className="relative rounded-3xl overflow-hidden border border-white/10 shadow-2xl mx-auto"
+                style={{ maxWidth: '360px', aspectRatio: '9/16', background: '#000' }}>
+                <video src={clips[activeClip].video_url} controls autoPlay loop
+                  className="w-full h-full object-contain" />
+              </div>
+            )}
+
+            {/* Clip info */}
+            {clips[activeClip] && (
+              <div className="p-5 bg-white/5 border border-white/10 rounded-2xl space-y-2">
+                {clips[activeClip].title && <h2 className="font-black text-lg text-white">{clips[activeClip].title}</h2>}
+                {clips[activeClip].hook_text && <p className="text-white/60 text-sm">{clips[activeClip].hook_text}</p>}
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="grid grid-cols-2 gap-4">
+              <a href={clips[activeClip]?.video_url || '#'} download={`silverhands_short_${activeClip + 1}.mp4`}
+                className="py-5 bg-white/10 hover:bg-white/20 text-white font-black text-lg rounded-2xl flex items-center justify-center gap-3 transition border border-white/10">
+                <Download className="w-6 h-6" /> Download
+              </a>
+              <button onClick={handleSave} disabled={isSaving || saved}
+                className="py-5 bg-[#031635] hover:bg-[#0d2b5e] disabled:opacity-60 text-[#FDBC13] font-black text-lg rounded-2xl flex items-center justify-center gap-3 transition border border-[#FDBC13]/30">
+                {saved ? <><CheckCircle className="w-6 h-6" /> Saved!</> : isSaving ? <><Loader2 className="w-6 h-6 animate-spin" /> Saving…</> : <><Save className="w-6 h-6" /> Save to Profile</>}
+              </button>
+            </div>
+
+            <div className="flex gap-4">
+              <button onClick={() => { setStage('output-choose'); setSaved(false); setClips([]); }}
+                className="flex-1 py-4 bg-violet-500/20 hover:bg-violet-500/30 text-violet-300 font-bold rounded-2xl flex items-center justify-center gap-2 transition border border-violet-500/30">
+                <RotateCcw className="w-5 h-5" /> Try Another Style
+              </button>
+              <button onClick={() => router.push('/profile')}
+                className="flex-1 py-4 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-bold rounded-2xl flex items-center justify-center gap-2 transition border border-emerald-500/30">
+                <CheckCircle className="w-5 h-5" /> Go to Profile
               </button>
             </div>
           </div>
         )}
-
       </main>
     </div>
   );
