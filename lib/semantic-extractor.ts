@@ -339,6 +339,38 @@ const NUMBER_WORDS: Record<string, number> = {
 };
 
 /**
+ * Robustly converts natural spoken audio digits/words into numeric PIN string.
+ * Example: "four two four two" -> "4242", "one two three four" -> "1234", "9 8 7 6" -> "9876"
+ */
+export function extractSpokenDigits(rawSpeech: string, targetLength: number = 4): string {
+  if (!rawSpeech) return '';
+  const wordMap: Record<string, string> = {
+    'zero': '0', 'oh': '0', 'o': '0', 'nil': '0',
+    'one': '1', 'won': '1',
+    'two': '2', 'to': '2', 'too': '2',
+    'three': '3', 'tree': '3',
+    'four': '4', 'for': '4', 'fore': '4',
+    'five': '5',
+    'six': '6',
+    'seven': '7',
+    'eight': '8', 'ate': '8',
+    'nine': '9'
+  };
+
+  const tokens = rawSpeech.toLowerCase().replace(/[^a-z0-9]/g, ' ').split(/\s+/).filter(Boolean);
+  let digits = '';
+  for (const t of tokens) {
+    if (/^\d+$/.test(t)) {
+      digits += t;
+    } else if (wordMap[t]) {
+      digits += wordMap[t];
+    }
+  }
+
+  return digits.slice(0, targetLength);
+}
+
+/**
  * Accurately extracts experience in years from natural spoken audio.
  * NEVER defaults to 30 or any arbitrary dummy number!
  * Correctly parses "0", "0 years", "none", "zero", "15 years", "about twenty years", etc.

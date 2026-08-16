@@ -1,9 +1,11 @@
-// Unified Voice Module: Centralized Audio Lifecycle & Speech Isolation
+// Unified Voice Module: Centralized Audio Lifecycle, Speech Isolation & Continuous Capture
 // Guarantees zero acoustic feedback loop between Assistant TTS and SpeechRecognition
+// Supports continuous multi-sentence speech accumulation and auto-restart across natural pauses
 
 export interface VoiceRecognitionResult {
   transcript: string;
   isFinal: boolean;
+  accumulatedFinal?: string;
 }
 
 export interface VoiceServiceOptions {
@@ -22,6 +24,7 @@ export class VoiceService {
   private currentTurnId: number = 0;
   private cooldownTimer: any = null;
   private activeOptions: VoiceServiceOptions | null = null;
+  private accumulatedFinalTranscript: string = '';
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -60,6 +63,7 @@ export class VoiceService {
     }
     this.isListeningActive = false;
     this.currentTurnId++; // Invalidate stale callbacks
+    this.accumulatedFinalTranscript = '';
 
     if (this.cooldownTimer) {
       clearTimeout(this.cooldownTimer);
@@ -77,7 +81,7 @@ export class VoiceService {
   }
 
   /**
-   * Starts listening to user microphone with strict state isolation.
+   * Starts listening to user microphone with continuous capture & multi-sentence accumulation.
    * Will refuse to start if assistant is currently speaking.
    */
   public startListening(options: VoiceServiceOptions): void {
@@ -94,13 +98,17 @@ export class VoiceService {
       return;
     }
 
-    // Stop any existing session
-    this.stopListening();
+    // Stop any previous session
+    this.isListeningActive = false;
+    if (this.recognition) {
+      try { this.recognition.abort(); } catch (e) {}
+    }
 
     this.activeOptions = options;
     const sessionTurnId = ++this.currentTurnId;
     this.voiceState = 'LISTENING';
     this.isListeningActive = true;
+    this.accumulatedFinalTranscript = '';
     console.log(`[VOICE] microphone_start { turn_id: ${sessionTurnId}, timestamp: ${Date.now()}, agent_state: 'LISTENING' }`);
 
     try {
@@ -113,23 +121,29 @@ export class VoiceService {
           return;
         }
 
-        let finalTranscript = '';
-        let interimTranscript = '';
+        let newFinalChunk = '';
+        let currentInterim = '';
 
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
+            newFinalChunk += event.results[i][0].transcript;
           } else {
-            interimTranscript += event.results[i][0].transcript;
+            currentInterim += event.results[i][0].transcript;
           }
         }
 
-        const currentText = (finalTranscript || interimTranscript).trim();
-        if (currentText && this.activeOptions && sessionTurnId === this.currentTurnId) {
-          console.log(`[VOICE] recognition_result { turn_id: ${sessionTurnId}, is_final: ${!!finalTranscript}, transcript: "${currentText}" }`);
+        if (newFinalChunk) {
+          this.accumulatedFinalTranscript = (this.accumulatedFinalTranscript + ' ' + newFinalChunk).trim();
+        }
+
+        const fullCombinedText = (this.accumulatedFinalTranscript + ' ' + currentInterim).trim();
+
+        if (fullCombinedText && this.activeOptions && sessionTurnId === this.currentTurnId) {
+          console.log(`[VOICE] recognition_result { turn_id: ${sessionTurnId}, is_final: ${!!newFinalChunk}, transcript: "${fullCombinedText}" }`);
           this.activeOptions.onResult({
-            transcript: currentText,
-            isFinal: !!finalTranscript
+            transcript: fullCombinedText,
+            isFinal: !!newFinalChunk,
+            accumulatedFinal: this.accumulatedFinalTranscript
           });
         }
       };
@@ -146,13 +160,19 @@ export class VoiceService {
       };
 
       this.recognition.onend = () => {
-        // If still meant to be listening and not interrupted by speaking/processing, keep clean
-        if (sessionTurnId !== this.currentTurnId || this.voiceState !== 'LISTENING' || !this.isListeningActive) {
-          this.isListeningActive = false;
-          return;
+        // Auto-restart if browser unexpectedly closes mic while we are still in LISTENING state
+        if (sessionTurnId === this.currentTurnId && this.voiceState === 'LISTENING' && this.isListeningActive) {
+          console.log(`[VOICE] continuous_recognition_auto_restart { turn_id: ${sessionTurnId} }`);
+          try {
+            this.recognition.start();
+            return;
+          } catch (e) {
+            // If already restarting or ended, proceed
+          }
         }
+
         this.isListeningActive = false;
-        if (this.activeOptions) {
+        if (this.activeOptions && sessionTurnId === this.currentTurnId) {
           this.activeOptions.onEnd();
         }
       };
@@ -175,7 +195,7 @@ export class VoiceService {
    * Speaks text using SpeechSynthesis with strict microphone mute and post-speech cooldown.
    * AI voice will NEVER be heard or transcribed by the speech recognition engine.
    */
-  public speak(text: string, lang: string = 'en-IN', onEnd?: () => void, cooldownMs: number = 500): void {
+  public speak(text: string, lang: string = 'en-IN', onEnd?: () => void, cooldownMs: number = 400): void {
     if (typeof window === 'undefined') {
       if (onEnd) onEnd();
       return;
@@ -198,7 +218,6 @@ export class VoiceService {
         if (speechTurnId !== this.currentTurnId) return;
 
         console.log(`[VOICE] assistant_tts_end { turn_id: ${speechTurnId}, timestamp: ${Date.now()}, agent_state: 'COOLDOWN', cooldown_ms: ${cooldownMs} }`);
-        // Transition to COOLDOWN state to ensure speaker echo disappears from room
         this.voiceState = 'COOLDOWN';
 
         this.cooldownTimer = setTimeout(() => {
@@ -222,6 +241,16 @@ export class VoiceService {
       this.voiceState = 'IDLE';
       if (onEnd) onEnd();
     }
+  }
+
+  /**
+   * Speaks a prompt and automatically activates continuous listening once TTS completes.
+   * Prevents microphone_start_blocked race conditions.
+   */
+  public speakAndListen(text: string, options: VoiceServiceOptions, lang: string = 'en-IN', cooldownMs: number = 400): void {
+    this.speak(text, lang, () => {
+      this.startListening(options);
+    }, cooldownMs);
   }
 }
 

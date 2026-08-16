@@ -14,6 +14,7 @@ import {
   getAllRegisteredFaceAccounts, findAccountByPassword, findAccountByVoicePin,
   resetAllAccountsToBlank, getAccountsRegistry
 } from '@/lib/voice-agent';
+import { extractSpokenDigits } from '@/lib/semantic-extractor';
 
 interface SignInModalProps {
   isOpen: boolean;
@@ -248,20 +249,27 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
   const startVoicePinListening = () => {
     setIsListeningPin(true);
     setPinErrorMsg(null);
-    voiceService.speak("Speak your 4-digit Voice PIN to sign in.", 'en-IN');
 
-    voiceService.startListening({
-      onResult: (res) => {
-        if (res.transcript) {
-          const match = res.transcript.match(/\d+/g);
-          const digits = match ? match.join('') : res.transcript;
-          setVoicePinInput(digits);
-          processVoicePinSubmission(digits);
-        }
-      },
-      onError: () => setIsListeningPin(false),
-      onEnd: () => setIsListeningPin(false)
-    });
+    voiceService.speakAndListen(
+      "Speak your 4-digit Voice PIN to sign in.",
+      {
+        onResult: (res) => {
+          if (res.transcript) {
+            const digits = extractSpokenDigits(res.transcript, 4) || res.transcript.replace(/\D/g, '').slice(0, 4);
+            if (digits.length > 0) {
+              setVoicePinInput(digits);
+            }
+            if (digits.length >= 4) {
+              setIsListeningPin(false);
+              voiceService.stopListening();
+              processVoicePinSubmission(digits);
+            }
+          }
+        },
+        onError: () => setIsListeningPin(false),
+        onEnd: () => setIsListeningPin(false)
+      }
+    );
   };
 
   // --- TAB 2: STRICT FACE ID RECOGNITION (NO FALLBACKS) ---

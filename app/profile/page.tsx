@@ -114,13 +114,16 @@ export default function ProfilePage() {
   };
 
   const displayName = profile.name || 'Not provided yet';
-  const displaySkill = profile.skill || 'Not provided yet';
+  const displaySkills = Array.isArray(profile.skills) && profile.skills.length > 0
+    ? profile.skills
+    : (profile.skill ? [{ name: profile.skill, type: 'primary' as const, experience_years: profile.experience_years ?? null }] : []);
+  const displaySkill = displaySkills.length > 0 ? displaySkills.map((s: any) => s.name).join(', ') : (profile.skill || 'Not provided yet');
   const displayExperience = profile.experience_years !== null && profile.experience_years !== undefined 
     ? (profile.experience_years === 0 ? '0 Years Experience' : `${profile.experience_years} Years Experience`) 
-    : 'Not provided yet';
+    : (displaySkills[0]?.experience_years !== null && displaySkills[0]?.experience_years !== undefined ? `${displaySkills[0].experience_years} Years Experience` : 'Not provided yet');
   const displayLocation = profile.location || 'Not provided yet';
   const displayLanguage = profile.language || 'English';
-  const displayServices = profile.services.length > 0 ? profile.services : [];
+  const displayServices = Array.isArray(profile.services) ? profile.services : [];
 
   return (
     <div className="bg-[#FAF9F6] text-[#1A1C1A] font-['Lexend',sans-serif] min-h-screen flex flex-col antialiased">
@@ -220,31 +223,77 @@ export default function ProfilePage() {
         {/* 2-Column Details Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           
-          {/* Left Column (8 Cols): Offerings & Biography */}
+          {/* Left Column (8 Cols): Skills, Offerings & Biography */}
           <div className="lg:col-span-8 space-y-6">
+            {/* Dynamic Skills Grid (Supports 1, 2, 5, 10+ skills) */}
             <div className="bg-white border-2 border-[#E3E2E0] rounded-3xl p-8 shadow-md space-y-6">
-              <h2 className="text-2xl font-extrabold text-[#031635]">Service Offerings & Classes</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-extrabold text-[#031635] flex items-center gap-2">
+                  <Award className="w-6 h-6 text-[#FDBC13]" /> Master Skills &amp; Craftsmanship
+                </h2>
+                <span className="text-xs font-bold bg-[#2D5A27]/10 text-[#2D5A27] px-3 py-1 rounded-full border border-[#2D5A27]/30">
+                  {displaySkills.length} {displaySkills.length === 1 ? 'Skill Verified' : 'Skills Verified'}
+                </span>
+              </div>
+
+              {displaySkills.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {displaySkills.map((sk: any, idx: number) => {
+                    const name = typeof sk === 'string' ? sk : (sk.name || 'Skill');
+                    const type = typeof sk === 'object' ? sk.type : (idx === 0 ? 'primary' : 'additional');
+                    const exp = typeof sk === 'object' ? sk.experience_years : null;
+                    return (
+                      <div key={idx} className="bg-[#FAF9F6] border-2 border-[#E3E2E0] rounded-2xl p-5 space-y-2 shadow-sm">
+                        <div className="flex items-center justify-between">
+                          <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${
+                            type === 'primary' ? 'bg-[#FDBC13] text-[#261900]' : 'bg-[#E3E2E0] text-[#44474E]'
+                          }`}>
+                            {type === 'primary' ? 'Primary Skill' : 'Additional Skill'}
+                          </span>
+                          <CheckCircle2 className="w-4 h-4 text-[#2D5A27]" />
+                        </div>
+                        <div className="text-xl font-extrabold text-[#031635]">{name}</div>
+                        <div className="text-sm font-semibold text-[#44474E]">
+                          {exp !== null && exp !== undefined ? (exp === 0 ? 'Starting out (0 years)' : `${exp} Years of Experience`) : 'Experience not specified'}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="p-6 bg-[#FAF9F6] border border-dashed border-[#C5C6CF] rounded-2xl text-center text-[#75777F] text-sm">
+                  No skills listed yet. Click &quot;Edit Profile with Voice&quot; to speak your skills.
+                </div>
+              )}
+            </div>
+
+            {/* Service Offerings */}
+            <div className="bg-white border-2 border-[#E3E2E0] rounded-3xl p-8 shadow-md space-y-6">
+              <h2 className="text-2xl font-extrabold text-[#031635]">Service Offerings &amp; Classes</h2>
               <p className="text-[#44474E] text-base leading-relaxed">
                 {displayServices.length > 0 
-                  ? `These creator offerings were confirmed for your expertise in ${displaySkill}.`
-                  : `No additional service offerings specified yet for ${displaySkill}.`}
+                  ? `These creator offerings were confirmed for your expertise.`
+                  : `No additional service offerings specified yet.`}
               </p>
 
               {displayServices.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {displayServices.map((srv, idx) => (
-                    <div key={idx} className="bg-[#FAF9F6] border-2 border-[#E3E2E0] rounded-2xl p-5 space-y-2 shadow-sm">
-                      <div className="w-10 h-10 bg-[#D8E2FF] text-[#031635] rounded-xl flex items-center justify-center font-bold">
-                        #{idx + 1}
+                  {displayServices.map((srv: any, idx: number) => {
+                    const label = typeof srv === 'string' ? srv : (srv?.name || `Service #${idx + 1}`);
+                    return (
+                      <div key={idx} className="bg-[#FAF9F6] border-2 border-[#E3E2E0] rounded-2xl p-5 space-y-2 shadow-sm">
+                        <div className="w-10 h-10 bg-[#D8E2FF] text-[#031635] rounded-xl flex items-center justify-center font-bold">
+                          #{idx + 1}
+                        </div>
+                        <div className="text-lg font-extrabold text-[#031635]">{label}</div>
+                        <div className="text-xs text-[#75777F]">Available for online &amp; local bookings</div>
                       </div>
-                      <div className="text-lg font-extrabold text-[#031635]">{srv}</div>
-                      <div className="text-xs text-[#75777F]">Available for online & local bookings</div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="p-6 bg-[#FAF9F6] border border-dashed border-[#C5C6CF] rounded-2xl text-center text-[#75777F] text-sm">
-                  Will be derived from confirmed skill or added when you create listings.
+                  Will be derived from confirmed skills or added when you create listings.
                 </div>
               )}
             </div>
