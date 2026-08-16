@@ -29,9 +29,24 @@ export async function initDatabaseSchema(): Promise<{ success: boolean; message:
   }
 
   const schemaSql = `
+    CREATE TABLE IF NOT EXISTS user_accounts (
+      id VARCHAR(64) PRIMARY KEY,
+      user_name VARCHAR(255) NOT NULL,
+      skill VARCHAR(255),
+      experience_years INTEGER,
+      location VARCHAR(255),
+      language VARCHAR(128),
+      services TEXT,
+      availability VARCHAR(255),
+      face_photo_url TEXT,
+      voice_pin VARCHAR(64),
+      password_hash VARCHAR(255),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS users (
       id VARCHAR(64) PRIMARY KEY,
-      phone VARCHAR(32) NOT NULL,
+      phone VARCHAR(32) NOT NULL DEFAULT '0000000000',
       role VARCHAR(32) NOT NULL DEFAULT 'elder_creator',
       name VARCHAR(255),
       guardian_phone VARCHAR(32),

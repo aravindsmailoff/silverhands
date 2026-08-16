@@ -306,6 +306,18 @@ export function registerCompleteUserAccount(params: {
   if (typeof window !== 'undefined') {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProfile));
+      // Asynchronously persist all user details, biometrics, PIN, and password to PostgreSQL
+      fetch('/api/users/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userName: name,
+          profile: updatedProfile,
+          voicePin: updatedSecurity.voicePin,
+          password: updatedSecurity.password,
+          photoUrl: updatedSecurity.face?.photoUrl
+        })
+      }).catch(err => console.warn('[PostgreSQL Sync Warning]:', err));
     } catch (e) {}
   }
 
