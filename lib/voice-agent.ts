@@ -148,11 +148,15 @@ export function isPasswordUsedByOtherUser(userName: string, passwordInput: strin
  */
 export function findAccountByPassword(passwordInput: string): UserAccountEntry | null {
   if (!passwordInput) return null;
+  const cleanInput = passwordInput.trim().toLowerCase();
   const registry = getAccountsRegistry();
   for (const key of Object.keys(registry)) {
     const account = registry[key];
-    if (account && account.security && account.security.password === passwordInput) {
-      return account;
+    if (account && account.security && account.security.password) {
+      const pass = account.security.password.trim().toLowerCase();
+      if (pass === cleanInput || pass.includes(cleanInput) || cleanInput.includes(pass)) {
+        return account;
+      }
     }
   }
   return null;
@@ -163,13 +167,25 @@ export function findAccountByPassword(passwordInput: string): UserAccountEntry |
  */
 export function findAccountByVoicePin(pinInput: string): UserAccountEntry | null {
   if (!pinInput) return null;
+  const cleanInput = pinInput.replace(/\D/g, '');
+  const rawInput = pinInput.trim().toLowerCase();
   const registry = getAccountsRegistry();
+
   for (const key of Object.keys(registry)) {
     const account = registry[key];
-    if (account && account.security && account.security.voicePin === pinInput) {
-      return account;
+    if (account && account.security && account.security.voicePin) {
+      const pinRaw = account.security.voicePin.trim().toLowerCase();
+      const pinDigits = pinRaw.replace(/\D/g, '');
+      
+      if (
+        (cleanInput && (pinDigits === cleanInput || pinDigits.includes(cleanInput) || cleanInput.includes(pinDigits))) ||
+        pinRaw === rawInput || pinRaw.includes(rawInput) || rawInput.includes(pinRaw)
+      ) {
+        return account;
+      }
     }
   }
+
   return null;
 }
 

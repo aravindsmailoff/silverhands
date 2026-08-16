@@ -99,6 +99,10 @@ export default function VoiceConversationalApp() {
         setCapturedFacePhoto(dataUrl);
         setIsFaceCaptured(true);
         stopCamera();
+
+        const userName = profileState.name?.trim() || 'Aravind';
+        registerFaceData(userName, dataUrl);
+
         voiceService.speak("Face ID captured! Now let's set your voice PIN and password.", 'en-IN', () => {
           startListeningForVoicePin();
         });
@@ -119,6 +123,10 @@ export default function VoiceConversationalApp() {
           const pin = digits.slice(0, 4) || '4242';
           setVoicePinInput(pin);
           setIsListeningPin(false);
+
+          const userName = profileState.name?.trim() || 'Aravind';
+          registerVoicePinData(pin, userName);
+
           voiceService.speak(`Voice PIN recorded as ${pin}. Now speak your account password.`, 'en-IN', () => {
             startListeningForPassword();
           });
@@ -141,6 +149,10 @@ export default function VoiceConversationalApp() {
           setPasswordInput(spokenPass);
           setConfirmPasswordInput(spokenPass);
           setIsListeningPassword(false);
+
+          const userName = profileState.name?.trim() || 'Aravind';
+          registerPasswordData(spokenPass, userName);
+
           voiceService.speak(`Password recorded as ${spokenPass}. All security credentials captured!`, 'en-IN');
         }
       },
