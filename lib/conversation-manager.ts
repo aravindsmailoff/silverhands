@@ -121,14 +121,44 @@ export function classifyIntent(speech: string, lastAssistantMessage: string = ''
  */
 export function isProfileComplete(profile: ProfileState): boolean {
   if (!profile.name || !profile.name.trim()) return false;
+  const nameLower = profile.name.toLowerCase();
+  if (
+    nameLower.includes('like to') || 
+    nameLower.includes('cooking') || 
+    nameLower.includes('cleaning') || 
+    nameLower.includes('tailor') ||
+    nameLower.includes('experience') || 
+    nameLower.includes('years') || 
+    profile.name.split(' ').length > 3
+  ) {
+    return false;
+  }
+
   const skills = Array.isArray(profile.skills) ? profile.skills : [];
   if (skills.length === 0) return false;
   for (const sk of skills) {
+    if (!sk.name || sk.name.toLowerCase().includes('experience') || sk.name.toLowerCase().includes('i have of')) {
+      return false;
+    }
     if (sk.experience_years === null || sk.experience_years === undefined || isNaN(Number(sk.experience_years))) {
       return false;
     }
   }
+
   if (!profile.location || !profile.location.trim()) return false;
+  const locLower = profile.location.toLowerCase();
+  if (
+    locLower === 'zero' || 
+    locLower === 'none' || 
+    locLower === 'nil' || 
+    locLower === 'unknown' || 
+    /^\d+$/.test(locLower) ||
+    locLower.includes('cooking') ||
+    locLower.includes('cleaning')
+  ) {
+    return false;
+  }
+
   return true;
 }
 
@@ -144,7 +174,17 @@ export function calculateMissingFields(profile: ProfileState): {
   let skillNeedingExp: ProfileSkill | null = null;
   let missingIndex = -1;
 
-  if (!profile.name || !profile.name.trim()) {
+  const nameLower = (profile.name || '').toLowerCase();
+  const isInvalidName = !profile.name || !profile.name.trim() || 
+    nameLower.includes('like to') || 
+    nameLower.includes('cooking') || 
+    nameLower.includes('cleaning') || 
+    nameLower.includes('tailor') ||
+    nameLower.includes('experience') || 
+    nameLower.includes('years') || 
+    profile.name.split(' ').length > 3;
+
+  if (isInvalidName) {
     missing.push('name');
   }
 
@@ -165,7 +205,17 @@ export function calculateMissingFields(profile: ProfileState): {
     }
   }
 
-  if (!profile.location || !profile.location.trim()) {
+  const locLower = (profile.location || '').toLowerCase();
+  const isInvalidLocation = !profile.location || !profile.location.trim() || 
+    locLower === 'zero' || 
+    locLower === 'none' || 
+    locLower === 'nil' || 
+    locLower === 'unknown' || 
+    /^\d+$/.test(locLower) ||
+    locLower.includes('cooking') ||
+    locLower.includes('cleaning');
+
+  if (isInvalidLocation) {
     missing.push('location');
   }
 
@@ -504,14 +554,29 @@ export async function manageConversationTurn(
   // =========================================================================
   // INTENT BRANCH 5: PROVIDE OR ADD INFORMATION (Multi-Entity Extraction)
   // =========================================================================
-  // 1. Name Extraction
+  // 1. Name Extraction (Strictly isolated from skill/experience phrases)
+  const isExplicitNameIntro = /^(?:my\s+name\s+is|i\s+am|i'?m|myself|this\s+is|call\s+me)\s+[a-z]+/i.test(cleanSpeech);
+  const wasAskedName = (lastAssistantMessage || '').toLowerCase().includes('name');
+
   if (llmResult?.extracted_name) {
     const norm = normalizeName(llmResult.extracted_name).name;
     if (norm) updatedProfile.name = norm;
-  } else if (!updatedProfile.name) {
-    const norm = normalizeName(cleanSpeech).name;
-    if (norm && !norm.toLowerCase().includes('tailor') && !norm.toLowerCase().includes('teach')) {
-      updatedProfile.name = norm;
+  } else if (!updatedProfile.name && (isExplicitNameIntro || wasAskedName)) {
+    const hasSkillsOrVerbs = cleanSpeech.toLowerCase().includes('cook') || 
+      cleanSpeech.toLowerCase().includes('clean') || 
+      cleanSpeech.toLowerCase().includes('tailor') || 
+      cleanSpeech.toLowerCase().includes('stitch') || 
+      cleanSpeech.toLowerCase().includes('pottery') || 
+      cleanSpeech.toLowerCase().includes('teach') || 
+      cleanSpeech.toLowerCase().includes('like to') || 
+      cleanSpeech.toLowerCase().includes('experience') || 
+      cleanSpeech.toLowerCase().includes('years');
+
+    if (isExplicitNameIntro || !hasSkillsOrVerbs) {
+      const norm = normalizeName(cleanSpeech).name;
+      if (norm) {
+        updatedProfile.name = norm;
+      }
     }
   }
 
@@ -519,7 +584,7 @@ export async function manageConversationTurn(
   if (Array.isArray(llmResult?.extracted_skills) && llmResult.extracted_skills.length > 0) {
     for (const gSkill of llmResult.extracted_skills) {
       const norm = normalizeSkill(gSkill.name || '').normalized || gSkill.name;
-      if (norm && norm.length >= 3) {
+      if (norm && norm.length >= 3 && !norm.toLowerCase().includes('experience') && !norm.toLowerCase().includes('i have of')) {
         const existingIdx = (updatedProfile.skills || []).findIndex(s => s.name.toLowerCase() === norm.toLowerCase());
         if (existingIdx !== -1) {
           if (typeof gSkill.experience_years === 'number') {
@@ -538,13 +603,15 @@ export async function manageConversationTurn(
     // Deterministic fallback multi-skill extractor
     const extractedList = normalizeSkillsList(cleanSpeech);
     for (const eSkill of extractedList) {
-      const existingIdx = (updatedProfile.skills || []).findIndex(s => s.name.toLowerCase() === eSkill.name.toLowerCase());
-      if (existingIdx !== -1) {
-        if (eSkill.experience_years !== null) {
-          updatedProfile.skills![existingIdx].experience_years = eSkill.experience_years;
+      if (!eSkill.name.toLowerCase().includes('experience') && !eSkill.name.toLowerCase().includes('i have of')) {
+        const existingIdx = (updatedProfile.skills || []).findIndex(s => s.name.toLowerCase() === eSkill.name.toLowerCase());
+        if (existingIdx !== -1) {
+          if (eSkill.experience_years !== null) {
+            updatedProfile.skills![existingIdx].experience_years = eSkill.experience_years;
+          }
+        } else {
+          updatedProfile.skills!.push(eSkill);
         }
-      } else {
-        updatedProfile.skills!.push(eSkill);
       }
     }
   }
@@ -562,16 +629,19 @@ export async function manageConversationTurn(
     }
   }
 
-  // 4. Location Extraction
+  // 4. Location Extraction (Strictly validates actual Indian geographic entities)
   if (llmResult?.extracted_location) {
     const locVal = validateAndParseLocation(llmResult.extracted_location);
     if (!locVal.needs_clarification && (locVal.city || locVal.locality)) {
       updatedProfile.location = locVal.formatted_address;
     }
   } else if (!updatedProfile.location) {
-    const locVal = validateAndParseLocation(cleanSpeech);
-    if (!locVal.needs_clarification && (locVal.city || locVal.locality)) {
-      updatedProfile.location = locVal.formatted_address;
+    const isPureNumber = /^(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s*(?:years?|yrs?)?$/i.test(cleanSpeech.trim());
+    if (!isPureNumber) {
+      const locVal = validateAndParseLocation(cleanSpeech);
+      if (!locVal.needs_clarification && (locVal.city || locVal.locality)) {
+        updatedProfile.location = locVal.formatted_address;
+      }
     }
   }
 

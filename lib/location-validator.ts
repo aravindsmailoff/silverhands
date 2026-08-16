@@ -415,10 +415,22 @@ export function validateAndParseLocation(rawInput: string, existingContextState?
     };
   }
 
-  // 5. Unrecognized or Generic Location: do not blindly accept arbitrary sentence
-  // Check if it looks like a single place name or ambiguous phrase
-  const cleanTokens = clean.split(' ').filter(t => t.length > 1);
-  if (cleanTokens.length > 0 && cleanTokens.length <= 4) {
+  // 5. Unrecognized location: check against non-geographic filters
+  const NON_LOCATION_WORDS = new Set([
+    'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+    'years', 'year', 'yrs', 'yr', 'months', 'month', 'days', 'day',
+    'cooking', 'cleaning', 'tailoring', 'stitching', 'pottery', 'teaching', 'painting', 'knitting',
+    'like', 'doing', 'good', 'craft', 'skill', 'work', 'experience', 'services', 'service',
+    'yes', 'no', 'correct', 'right', 'wrong', 'actually', 'instead',
+    'name', 'called', 'am', 'is', 'are', 'was'
+  ]);
+
+  const cleanTokens = clean.split(' ').filter(t => t.length > 1 && !NON_LOCATION_WORDS.has(t.toLowerCase()) && !/^\d+$/.test(t));
+  
+  // Only accept if at least one token is a capitalized proper noun place name AND user didn't mention skill/experience words
+  const hasVerbOrSkill = clean.split(' ').some(w => NON_LOCATION_WORDS.has(w.toLowerCase()) || /^\d+$/.test(w));
+
+  if (!hasVerbOrSkill && cleanTokens.length > 0 && cleanTokens.length <= 3) {
     const titleCased = cleanTokens.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     return {
       locality: null,
@@ -429,7 +441,7 @@ export function validateAndParseLocation(rawInput: string, existingContextState?
       formatted_address: detectedState ? `${titleCased}, ${detectedState}` : titleCased,
       is_state_only: false,
       needs_clarification: false,
-      confidence: 0.75
+      confidence: 0.7
     };
   }
 

@@ -62,13 +62,30 @@ export function normalizeName(rawSpeech: string): { name: string | null; confide
     .replace(/\s+(here|speaking|this\s+side)$/i, '')
     .trim();
 
+  // Non-name action verbs, craft words, and conversational fillers
+  const NON_NAME_TOKENS = new Set([
+    'like', 'likes', 'love', 'loves', 'do', 'doing', 'does', 'know', 'knows', 'good', 'great',
+    'cook', 'cooking', 'clean', 'cleaning', 'tailor', 'tailoring', 'stitch', 'stitching',
+    'pottery', 'clay', 'teach', 'teaching', 'paint', 'painting', 'knit', 'knitting',
+    'embroidery', 'crochet', 'music', 'singing', 'math', 'mathematics',
+    'years', 'year', 'yrs', 'yr', 'months', 'days', 'zero', 'one', 'two', 'three', 'four', 'five',
+    'live', 'living', 'stay', 'staying', 'work', 'working', 'services', 'service',
+    'yes', 'no', 'yeah', 'yep', 'nope', 'correct', 'true', 'false', 'actually', 'instead',
+    'sure', 'ok', 'okay', 'fine', 'ready', 'hello', 'hi', 'hey'
+  ]);
+
   // Remove common filler words if any still precede a proper noun
-  const fillerTokens = ['i', 'think', 'im', "i'm", 'am', 'is', 'my', 'name', 'the', 'a', 'just'];
+  const fillerTokens = ['i', 'think', 'im', "i'm", 'am', 'is', 'my', 'name', 'the', 'a', 'just', 'to'];
   const words = text.split(' ').filter(w => w.length > 0);
   const cleanWords = words.filter(w => !fillerTokens.includes(w.toLowerCase()));
 
   const finalNameWords = cleanWords.length > 0 ? cleanWords : words;
-  if (finalNameWords.length === 0) return { name: null, confidence: 0 };
+  if (finalNameWords.length === 0 || finalNameWords.length > 3) return { name: null, confidence: 0 };
+
+  // If any token in the candidate name is an action verb or craft word, reject it
+  if (finalNameWords.some(w => NON_NAME_TOKENS.has(w.toLowerCase()))) {
+    return { name: null, confidence: 0 };
+  }
 
   const titleCased = finalNameWords
     .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
@@ -174,6 +191,9 @@ export function normalizeSkill(rawSpeech: string): {
   if (text.includes('south indian food') || text.includes('south indian cooking') || text.includes('sambar') || text.includes('dosa') || text.includes('idli')) {
     return { normalized: 'South Indian Cooking', confidence: 0.97, needs_clarification: false };
   }
+  if (text.includes('clean') || text.includes('cleaning') || text.includes('housekeeping') || text.includes('maid') || text.includes('sweeping')) {
+    return { normalized: 'Cleaning & Housekeeping', confidence: 0.95, needs_clarification: false };
+  }
   if (text.includes('traditional cooking') || text.includes('cooking') || text.includes('recipe') || text.includes('culinary') || text.includes('bake') || text.includes('baking')) {
     return { normalized: 'Traditional Cooking', confidence: 0.95, needs_clarification: false };
   }
@@ -216,10 +236,18 @@ export function normalizeSkill(rawSpeech: string): {
     };
   }
 
-  // Reject conversational self-intros, fillers, numbers, and location clauses
+  // Reject conversational self-intros, fillers, numbers, experience phrases, and location clauses
   const fillerWords = ['actually', 'basically', 'well', 'also', 'so', 'yes', 'no', 'yeah', 'hello', 'hi', 'hey', 'okay', 'ok', 'right', 'sure', 'fine'];
   if (
     fillerWords.includes(text) ||
+    text.includes('experience') ||
+    text.includes('year') ||
+    text.includes('years') ||
+    text.includes('doing this') ||
+    text.includes('have been') ||
+    text.includes('i have of') ||
+    text.includes('like to do') ||
+    text.includes('like to') ||
     text.match(/^\d+\s*(?:years?|yrs?|yr)?$/i) ||
     text.match(/^(?:about|around|for|with)?\s*\d+\s*(?:years?|yrs?)?$/i) ||
     text.match(/^(?:about|around|for|with)?\s*(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty)\s*(?:years?|yrs?)?$/i) ||
@@ -343,6 +371,13 @@ export function normalizeSkillsList(rawSpeech: string): ProfileSkill[] {
           type: skillType,
           experience_years: chunkExperience
         });
+      }
+    } else if (chunkExperience !== null && results.length > 0) {
+      // Experience was spoken as a trailing chunk (e.g. "cooking, 10 years" or "cooking and cleaning, 0 years")
+      // Attach to the last skill that does not have experience years yet
+      const unassignedSkill = results.slice().reverse().find(r => r.experience_years === null);
+      if (unassignedSkill) {
+        unassignedSkill.experience_years = chunkExperience;
       }
     }
   }
