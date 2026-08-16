@@ -99,12 +99,19 @@ export default function VoiceConversationalApp() {
     });
   };
 
+  const handleRespeak = () => {
+    setUserTranscript('');
+    voiceService.stopListening();
+    triggerAiSpeaking("I am listening again. Please speak your altered answer.");
+  };
+
   // Process user speech when user stops speaking or taps Submit
   const handleSendUserSpeech = async (speechTextToSend?: string) => {
     const textToProcess = speechTextToSend || userTranscript;
     if (!textToProcess.trim()) return;
 
     voiceService.stopListening();
+    setUserTranscript('');
     setAgentState('PROCESSING');
 
     try {
@@ -378,20 +385,17 @@ export default function VoiceConversationalApp() {
                 </p>
 
                 <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
-                  {userTranscript && agentState === 'LISTENING_TO_YOU' && (
+                  {userTranscript && (
                     <button
                       onClick={() => handleSendUserSpeech()}
-                      className="px-6 py-2.5 bg-[#031635] text-white text-sm font-bold rounded-xl shadow-md hover:bg-[#1a2b4b] transition"
+                      className="px-6 py-2.5 bg-[#031635] text-white text-sm font-bold rounded-xl shadow-md hover:bg-[#1a2b4b] transition flex items-center gap-2"
                     >
-                      Submit Spoken Answer ➔
+                      Submit Spoken Answer & Next Question ➔
                     </button>
                   )}
 
                   <button
-                    onClick={() => {
-                      setUserTranscript('');
-                      startListeningToUser();
-                    }}
+                    onClick={handleRespeak}
                     className="px-4 py-2 bg-[#FDBC13] text-[#261900] text-xs font-extrabold rounded-xl shadow hover:bg-[#F3B20B] transition flex items-center gap-1.5"
                   >
                     <Mic className="w-4 h-4" /> Re-speak / Correct Answer
