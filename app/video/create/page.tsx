@@ -38,10 +38,17 @@ export default function CreateVideoPage() {
   const timerIntervalRef = useRef<any>(null);
   const animFrameIdRef = useRef<number | null>(null);
 
+  const [isGestureControlEnabled, setIsGestureControlEnabled] = useState<boolean>(false);
+  const isGestureEnabledRef = useRef<boolean>(false);
+
   // Sync state to ref for real-time camera loop
   useEffect(() => {
     isRecordingRef.current = isRecordingVideo;
   }, [isRecordingVideo]);
+
+  useEffect(() => {
+    isGestureEnabledRef.current = isGestureControlEnabled;
+  }, [isGestureControlEnabled]);
 
   // Handle Recording Timer
   useEffect(() => {
@@ -177,59 +184,19 @@ export default function CreateVideoPage() {
     animFrameIdRef.current = requestAnimationFrame(processFrame);
   };
 
-  // High-Reliability Native Hand Landmark Analysis
+  // Native Hand Landmark Analysis (Disabled pixel color heuristics to prevent false room triggers)
   const analyzeHandGesturesNative = (imageData: ImageData, width: number, height: number) => {
-    const now = Date.now();
-    if (now - lastGestureTimeRef.current < 2200) return;
-
-    const data = imageData.data;
-    let upperSkinCount = 0;
-    let centerSkinCount = 0;
-
-    // Scan pixel grid across camera frame
-    for (let y = 0; y < height; y += 8) {
-      for (let x = 0; x < width; x += 8) {
-        const idx = (y * width + x) * 4;
-        const r = data[idx];
-        const g = data[idx + 1];
-        const b = data[idx + 2];
-
-        // Skin color contrast threshold
-        const isHandSkin = r > 80 && g > 35 && b > 20 && Math.abs(r - g) > 12 && r > g && r > b;
-        
-        if (isHandSkin) {
-          if (y < height * 0.45) upperSkinCount++;
-          if (y >= height * 0.25 && y <= height * 0.75 && x >= width * 0.2 && x <= width * 0.8) {
-            centerSkinCount++;
-          }
-        }
-      }
-    }
-
-    const currentlyRecording = isRecordingRef.current;
-
-    // IF RECORDING: Check for Open 5-Finger Palm (STOP)
-    if (currentlyRecording) {
-      if (centerSkinCount > 40 && upperSkinCount > 20) {
-        lastGestureTimeRef.current = now;
-        handleGestureTrigger('OPEN_PALM');
-      }
-    } 
-    // IF NOT RECORDING: Check for Thumbs Up (START)
-    else {
-      if (upperSkinCount > 15 && upperSkinCount > centerSkinCount * 0.45) {
-        lastGestureTimeRef.current = now;
-        handleGestureTrigger('THUMBS_UP');
-      }
-    }
+    // Rely exclusively on MediaPipe 3D ML landmarks when gesture toggle is ON
+    return;
   };
 
-  // Google MediaPipe Hands 3D ML Callback (Secondary Enhancer)
+  // Google MediaPipe Hands 3D ML Callback
   const onMediaPipeResults = (results: any) => {
+    if (!isGestureEnabledRef.current) return;
     if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) return;
 
     const now = Date.now();
-    if (now - lastGestureTimeRef.current < 2200) return;
+    if (now - lastGestureTimeRef.current < 3000) return;
 
     const landmarks = results.multiHandLandmarks[0];
     const thumbTip = landmarks[4];
@@ -241,7 +208,7 @@ export default function CreateVideoPage() {
 
     const isIndexExtended = indexTip.y < indexPip.y;
     const isMiddleExtended = middleTip.y < middlePip.y;
-    const isThumbExtendedUp = thumbTip.y < thumbMcp.y - 0.04;
+    const isThumbExtendedUp = thumbTip.y < thumbMcp.y - 0.05;
 
     const currentlyRecording = isRecordingRef.current;
 
@@ -694,18 +661,32 @@ export default function CreateVideoPage() {
 
                 {/* Status Banner */}
                 <div className="absolute top-4 left-4 right-4 flex items-center justify-between z-20">
-                  <div className="bg-black/75 backdrop-blur-md text-white px-4 py-2 rounded-full text-xs font-extrabold flex items-center gap-2 border border-white/20">
-                    <span className="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-ping" />
-                    Computer Vision Gesture Camera Active
-                  </div>
+                  <button
+                    onClick={() => {
+                      const next = !isGestureControlEnabled;
+                      setIsGestureControlEnabled(next);
+                      if (next) {
+                        voiceService.speak("Hand gesture control enabled. Show thumbs up to record, open palm to stop.", 'en-IN');
+                      } else {
+                        voiceService.speak("Gesture control turned off. Use manual buttons.", 'en-IN');
+                      }
+                    }}
+                    className={`px-3.5 py-1.5 rounded-full text-xs font-extrabold flex items-center gap-1.5 border shadow-md transition ${
+                      isGestureControlEnabled
+                        ? 'bg-[#FDBC13] text-[#261900] border-amber-500 font-black'
+                        : 'bg-black/75 backdrop-blur-md text-white border-white/20 hover:bg-black/90'
+                    }`}
+                  >
+                    {isGestureControlEnabled ? '🖐️ Gesture AI: ON (👍 Start / ✋ Stop)' : '🖐️ Enable Hand Gestures'}
+                  </button>
 
                   {isRecordingVideo ? (
                     <div className="bg-rose-600 text-white px-4 py-2 rounded-full text-xs font-black uppercase tracking-wider flex items-center gap-2 animate-pulse shadow-lg font-mono">
                       🔴 RECORDING ({formatTimer(recordingSeconds)})
                     </div>
                   ) : (
-                    <div className="bg-amber-500 text-[#261900] px-4 py-2 rounded-full text-xs font-bold uppercase tracking-wider">
-                      Show 👍 Thumbs Up to Record
+                    <div className="bg-slate-800/90 text-slate-200 px-3.5 py-1.5 rounded-full text-xs font-semibold backdrop-blur-md border border-white/10">
+                      {isGestureControlEnabled ? 'Show 👍 Thumbs Up to Record' : 'Touch Controls Active'}
                     </div>
                   )}
                 </div>
