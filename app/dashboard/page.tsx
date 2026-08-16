@@ -12,15 +12,19 @@ import {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [userName, setUserName] = useState<string>('Senior Creator');
-  const [userSkill, setUserSkill] = useState<string>('Traditional Arts & Cooking');
-  const [userLocation, setUserLocation] = useState<string>('Chennai');
+  const [userName, setUserName] = useState<string | null>(null);
+  const [userSkill, setUserSkill] = useState<string>('');
+  const [userLocation, setUserLocation] = useState<string>('');
 
   useEffect(() => {
     const saved = getSavedProfile();
-    if (saved.name) setUserName(saved.name);
-    if (saved.skill) setUserSkill(saved.skill);
-    if (saved.location) setUserLocation(saved.location);
+    if (saved && saved.name) {
+      setUserName(saved.name);
+      if (saved.skill) setUserSkill(saved.skill);
+      if (saved.location) setUserLocation(saved.location);
+    } else {
+      setUserName(null);
+    }
   }, []);
 
   return (

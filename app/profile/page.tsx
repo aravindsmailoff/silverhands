@@ -60,12 +60,12 @@ export default function ProfilePage() {
     alert("Old video cache cleared! Now record a new video in Video Studio to generate your dynamic AI description.");
   };
 
-  const displayName = profile.name || 'Senior Creator';
-  const displaySkill = profile.skill || 'Traditional Crafts & Cooking';
-  const displayExperience = profile.experience_years !== null ? `${profile.experience_years}+ Years Experience` : '30+ Years Experience';
-  const displayLocation = profile.location || 'New Delhi';
+  const displayName = profile.name || 'New Creator (Unregistered)';
+  const displaySkill = profile.skill || 'Crafts & Skills';
+  const displayExperience = profile.experience_years !== null ? `${profile.experience_years}+ Years Experience` : 'Experience Not Specified';
+  const displayLocation = profile.location || 'Location Not Set';
   const displayLanguage = profile.language || 'English';
-  const displayServices = profile.services.length > 0 ? profile.services : ['Online Classes', 'Video Lessons', 'Homemade Products'];
+  const displayServices = profile.services.length > 0 ? profile.services : ['Online Lessons', 'Handmade Products'];
 
   return (
     <div className="bg-[#FAF9F6] text-[#1A1C1A] font-['Lexend',sans-serif] min-h-screen flex flex-col antialiased">
