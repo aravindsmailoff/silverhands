@@ -15,6 +15,10 @@ import {
 export default function CreateAccountOnboardingPage() {
   const router = useRouter();
 
+  useEffect(() => {
+    router.push('/');
+  }, [router]);
+
   // Onboarding Wizard Steps: 1 = Name/Skill, 2 = Voice PIN, 3 = Face ID, 4 = Password
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
 

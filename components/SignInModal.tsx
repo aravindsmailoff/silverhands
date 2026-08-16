@@ -19,9 +19,10 @@ interface SignInModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (name: string) => void;
+  onStartVoiceOnboarding?: () => void;
 }
 
-export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalProps) {
+export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOnboarding }: SignInModalProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'voice_pin' | 'face' | 'password'>('voice_pin');
   
@@ -431,10 +432,16 @@ export default function SignInModal({ isOpen, onClose, onSuccess }: SignInModalP
           {/* Bottom Action Footer */}
           <div className="pt-4 border-t border-[#E3E2E0] flex items-center justify-center">
             <button
-              onClick={() => { stopCamera(); onClose(); router.push('/onboarding/voice'); }}
+              onClick={() => {
+                stopCamera();
+                onClose();
+                if (onStartVoiceOnboarding) {
+                  onStartVoiceOnboarding();
+                }
+              }}
               className="text-xs font-extrabold text-[#031635] hover:underline flex items-center gap-1"
             >
-              + Create New Account
+              + Create New Account with Voice
             </button>
           </div>
 

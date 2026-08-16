@@ -307,6 +307,10 @@ export default function VoiceConversationalApp() {
           const saved = getSavedProfile();
           setProfileState(saved);
         }}
+        onStartVoiceOnboarding={() => {
+          setIsSignInModalOpen(false);
+          handleStartConversation();
+        }}
       />
 
       {/* Top Desktop Navigation Bar */}
