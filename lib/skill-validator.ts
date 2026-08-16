@@ -333,7 +333,7 @@ export function resolveCanonicalSkill(rawText: string): {
     return { normalized: null, category: null, confidence: 0, isValid: false };
   }
 
-  // Reject geographical, pronoun, and conversational terms
+  // Reject geographical, pronoun, name intro, and conversational terms
   if (
     text.includes('live') || 
     text.includes('from') || 
@@ -352,14 +352,37 @@ export function resolveCanonicalSkill(rawText: string): {
     return { normalized: null, category: null, confidence: 0, isValid: false };
   }
 
-  // If text is a clean 1-3 word craft/work description not matching our database
+  // Authoritative vocational root keywords for custom elder livelihood skills
+  const VOCATIONAL_ROOT_KEYWORDS = [
+    'cook', 'bake', 'baking', 'culinary', 'recipe', 'catering', 'food', 'chef', 'sweet', 'pickle', 'masala',
+    'teach', 'tutor', 'tutoring', 'coach', 'coaching', 'class', 'lesson', 'mentor', 'mentoring', 'guide',
+    'tailor', 'tailoring', 'stitch', 'stitching', 'sewing', 'sew', 'embroidery', 'crochet', 'knit', 'knitting',
+    'pottery', 'clay', 'ceramic', 'jewellery', 'jewelry', 'beadwork', 'craft', 'handicraft', 'quilling', 'origami',
+    'paint', 'painting', 'draw', 'drawing', 'sketch', 'sketching', 'art', 'artist', 'calligraphy',
+    'music', 'sing', 'singing', 'vocal', 'carnatic', 'hindustani', 'veena', 'flute', 'violin', 'mridangam', 'tabla', 'guitar', 'keyboard', 'harmonium',
+    'dance', 'bharatanatyam', 'kathak', 'folk dance',
+    'yoga', 'pranayama', 'meditation', 'fitness', 'exercise', 'walking', 'physio',
+    'chess', 'badminton', 'cricket', 'tennis', 'table tennis', 'carrom', 'sports',
+    'garden', 'gardening', 'plant', 'plants', 'bonsai', 'organic farming', 'horticulture',
+    'astrology', 'horoscope', 'vedic', 'puja', 'priest', 'vaastu', 'vastu', 'numerology',
+    'carpenter', 'carpentry', 'woodwork', 'repair', 'electrician', 'plumbing', 'mechanic',
+    'elder care', 'patient care', 'childcare', 'babysitting', 'companion', 'counseling', 'storytelling',
+    'housekeeping', 'cleaning', 'driver', 'driving', 'handyman'
+  ];
+
+  const hasVocationalRoot = VOCATIONAL_ROOT_KEYWORDS.some(root => text.includes(root));
+  if (!hasVocationalRoot) {
+    return { normalized: null, category: null, confidence: 0, isValid: false };
+  }
+
+  // If text contains a verified vocational indicator, format it cleanly
   const words = text.split(' ').filter(w => w.length > 1);
-  if (words.length >= 1 && words.length <= 3) {
+  if (words.length >= 1 && words.length <= 4) {
     const formatted = words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     return {
       normalized: formatted,
       category: 'Other Services',
-      confidence: 0.8,
+      confidence: 0.85,
       isValid: true
     };
   }

@@ -571,11 +571,13 @@ export async function manageConversationTurn(
   }
 
   // =========================================================================
-  // INTENT BRANCH 5: PROVIDE OR ADD INFORMATION (Multi-Entity Extraction)
+  // INTENT BRANCH 5: PROVIDE OR ADD INFORMATION (Strict Sequential Timeline Gating)
+  // Timeline: Stage 1 (Name) -> Stage 2 (Skills) -> Stage 3 (Experience) -> Stage 4 (Location) -> Stage 5 (Confirm)
   // =========================================================================
-  // 1. Name Extraction (Strictly isolated from skill/experience phrases)
+
+  // --- STAGE 1: NAME EXTRACTION GATE ---
   const isExplicitNameIntro = /^(?:my\s+name\s+is|i\s+am|i'?m|myself|this\s+is|call\s+me)\s+[a-z]+/i.test(cleanSpeech);
-  const wasAskedName = (lastAssistantMessage || '').toLowerCase().includes('name');
+  const wasAskedName = (lastAssistantMessage || '').toLowerCase().includes('name') || !updatedProfile.name;
 
   if (llmResult?.extracted_name) {
     const norm = normalizeName(llmResult.extracted_name).name;
@@ -599,7 +601,26 @@ export async function manageConversationTurn(
     }
   }
 
-  // 2. Skills Extraction (Supports Multiple Skills & Inline Per-Skill Experience)
+  // TIMELINE BARRIER 1: Without a valid Name, no skills, experience, or location can be collected.
+  if (!updatedProfile.name) {
+    return {
+      action: {
+        intent,
+        understanding: cleanSpeech,
+        extracted_name: null,
+        extracted_skills: [],
+        extracted_location: null,
+        missing_fields: ['name', 'skills', 'experience', 'location'],
+        next_action: 'collect_information',
+        assistant_response: "Welcome to SilverHands! I will help you create your profile using voice. What is your full name?",
+        completed: false
+      },
+      updatedProfile
+    };
+  }
+
+  // --- STAGE 2: SKILLS EXTRACTION GATE ---
+  // Only accessible when Name is verified.
   const wasAskedLocation = (lastAssistantMessage || '').toLowerCase().includes('city') ||
     (lastAssistantMessage || '').toLowerCase().includes('locality') ||
     (lastAssistantMessage || '').toLowerCase().includes('located') ||
@@ -617,8 +638,8 @@ export async function manageConversationTurn(
   if (shouldExtractSkills) {
     if (Array.isArray(llmResult?.extracted_skills) && llmResult.extracted_skills.length > 0) {
       for (const gSkill of llmResult.extracted_skills) {
-        const norm = normalizeSkill(gSkill.name || '').normalized || gSkill.name;
-        if (norm && norm.length >= 3 && !norm.toLowerCase().includes('experience') && !norm.toLowerCase().includes('i have of')) {
+        const norm = normalizeSkill(gSkill.name || '').normalized;
+        if (norm && norm.length >= 3) {
           const existingIdx = (updatedProfile.skills || []).findIndex(s => s.name.toLowerCase() === norm.toLowerCase());
           if (existingIdx !== -1) {
             if (typeof gSkill.experience_years === 'number') {
@@ -637,20 +658,25 @@ export async function manageConversationTurn(
       // Deterministic fallback multi-skill extractor
       const extractedList = normalizeSkillsList(cleanSpeech);
       for (const eSkill of extractedList) {
-        if (!eSkill.name.toLowerCase().includes('experience') && !eSkill.name.toLowerCase().includes('i have of')) {
-          const existingIdx = (updatedProfile.skills || []).findIndex(s => s.name.toLowerCase() === eSkill.name.toLowerCase());
+        const norm = normalizeSkill(eSkill.name || '').normalized;
+        if (norm && norm.length >= 3) {
+          const existingIdx = (updatedProfile.skills || []).findIndex(s => s.name.toLowerCase() === norm.toLowerCase());
           if (existingIdx !== -1) {
             if (eSkill.experience_years !== null) {
               updatedProfile.skills![existingIdx].experience_years = eSkill.experience_years;
             }
           } else {
-            updatedProfile.skills!.push(eSkill);
+            updatedProfile.skills!.push({
+              name: norm,
+              type: eSkill.type || (updatedProfile.skills!.length === 0 ? 'primary' : 'additional'),
+              experience_years: eSkill.experience_years
+            });
           }
         }
       }
     }
   } else {
-    // If not creating new skills, check if user provided inline experience for existing skills
+    // If not adding new skills, check if user provided inline experience for existing skills
     const extractedList = normalizeSkillsList(cleanSpeech);
     for (const eSkill of extractedList) {
       const existingIdx = (updatedProfile.skills || []).findIndex(s => s.name.toLowerCase() === eSkill.name.toLowerCase());
@@ -660,7 +686,26 @@ export async function manageConversationTurn(
     }
   }
 
-  // 3. Single-Skill Experience Extraction (When answering a single targeted experience question)
+  // TIMELINE BARRIER 2: Without at least one verified skill, cannot collect experience or location.
+  if (!updatedProfile.skills || updatedProfile.skills.length === 0) {
+    return {
+      action: {
+        intent,
+        understanding: cleanSpeech,
+        extracted_name: updatedProfile.name,
+        extracted_skills: [],
+        extracted_location: null,
+        missing_fields: ['skills', 'experience', 'location'],
+        next_action: 'collect_information',
+        assistant_response: `Nice to meet you, ${updatedProfile.name}! What skills, crafts, or subjects do you practice or teach?`,
+        completed: false
+      },
+      updatedProfile
+    };
+  }
+
+  // --- STAGE 3: EXPERIENCE EXTRACTION GATE ---
+  // Only accessible when Skills are present.
   const isMultiClause = cleanSpeech.split(',').length > 1 || cleanSpeech.toLowerCase().includes(' and ') || cleanSpeech.toLowerCase().includes('also');
   const missingStatusBeforeExp = calculateMissingFields(updatedProfile);
   if (!isMultiClause && missingStatusBeforeExp.missing.includes('experience') && missingStatusBeforeExp.skillNeedingExperience) {
@@ -673,7 +718,27 @@ export async function manageConversationTurn(
     }
   }
 
-  // 4. Location Extraction (Strict Meaning-First Indian Geolocation)
+  // Check if any skill is still missing experience
+  const missingStatusAfterExp = calculateMissingFields(updatedProfile);
+  if (missingStatusAfterExp.missing.includes('experience') && missingStatusAfterExp.skillNeedingExperience) {
+    return {
+      action: {
+        intent,
+        understanding: cleanSpeech,
+        extracted_name: updatedProfile.name,
+        extracted_skills: updatedProfile.skills,
+        extracted_location: null,
+        missing_fields: missingStatusAfterExp.missing,
+        next_action: 'collect_information',
+        assistant_response: `How many years of experience do you have in ${missingStatusAfterExp.skillNeedingExperience.name}?`,
+        completed: false
+      },
+      updatedProfile
+    };
+  }
+
+  // --- STAGE 4: LOCATION EXTRACTION GATE ---
+  // Only accessible when Name, Skills, and Experience are all verified.
   let locationClarificationMsg: string | null = null;
   const isPureNumber = /^(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s*(?:years?|yrs?)?$/i.test(cleanSpeech.trim());
 
@@ -681,7 +746,7 @@ export async function manageConversationTurn(
     const locVal = validateAndParseLocation(llmResult?.extracted_location || cleanSpeech);
     if (!locVal.needs_clarification && (locVal.city || locVal.locality)) {
       updatedProfile.location = locVal.formatted_address;
-    } else if (locVal.needs_clarification && (lastAssistantMessage.toLowerCase().includes('city') || lastAssistantMessage.toLowerCase().includes('locality') || lastAssistantMessage.toLowerCase().includes('located'))) {
+    } else if (locVal.needs_clarification) {
       locationClarificationMsg = locVal.clarification_question || null;
     }
   }
@@ -692,31 +757,29 @@ export async function manageConversationTurn(
     updatedProfile.experience_years = updatedProfile.skills[0].experience_years;
   }
 
-  // Calculate missing fields deterministically
-  const missingState = calculateMissingFields(updatedProfile);
+  // TIMELINE BARRIER 4: Check if Location is still missing
+  if (!updatedProfile.location) {
+    return {
+      action: {
+        intent,
+        understanding: cleanSpeech,
+        extracted_name: updatedProfile.name,
+        extracted_skills: updatedProfile.skills,
+        extracted_location: null,
+        missing_fields: ['location'],
+        next_action: locationClarificationMsg ? 'clarify' : 'collect_information',
+        assistant_response: locationClarificationMsg || `Which city or locality in India are you based in?`,
+        completed: false
+      },
+      updatedProfile
+    };
+  }
 
-  if (missingState.missing.length === 0) {
-    nextAction = 'confirm';
-    const skillSummary = (updatedProfile.skills || []).map(s => `${s.name} (${s.experience_years} years)`).join(', ');
-    if (!assistantResponse) {
-      assistantResponse = `${updatedProfile.name}, here is what I have recorded: your skills are ${skillSummary}, and you are located in ${updatedProfile.location}. Is everything correct?`;
-    }
-  } else {
-    nextAction = 'collect_information';
-    if (!assistantResponse) {
-      if (locationClarificationMsg) {
-        assistantResponse = locationClarificationMsg;
-      } else if (missingState.missing.includes('name')) {
-        assistantResponse = "Welcome to SilverHands! What is your name?";
-      } else if (missingState.missing.includes('skills')) {
-        assistantResponse = `Nice to meet you, ${updatedProfile.name}! What skills, crafts, or work do you offer?`;
-      } else if (missingState.missing.includes('experience') && missingState.skillNeedingExperience) {
-        // Targeted skill-specific experience inquiry
-        assistantResponse = `How many years of experience do you have in ${missingState.skillNeedingExperience.name}?`;
-      } else if (missingState.missing.includes('location')) {
-        assistantResponse = `Which city or locality in India do you live or work in?`;
-      }
-    }
+  // --- STAGE 5: SUMMARY & CONFIRMATION ---
+  nextAction = 'confirm';
+  const skillSummary = (updatedProfile.skills || []).map(s => `${s.name} (${s.experience_years} years)`).join(', ');
+  if (!assistantResponse) {
+    assistantResponse = `${updatedProfile.name}, here is what I have recorded: your skills are ${skillSummary}, and you are located in ${updatedProfile.location}. Is everything correct?`;
   }
 
   return {
@@ -726,7 +789,7 @@ export async function manageConversationTurn(
       extracted_name: updatedProfile.name,
       extracted_skills: updatedProfile.skills,
       extracted_location: updatedProfile.location,
-      missing_fields: missingState.missing,
+      missing_fields: [],
       next_action: nextAction,
       assistant_response: assistantResponse,
       completed: false
