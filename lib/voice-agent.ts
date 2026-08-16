@@ -61,24 +61,40 @@ export function normalizeUserName(name: string | null | undefined): string {
   return name.trim().toLowerCase().replace(/\s+/g, '_');
 }
 
-export function getActiveUserAccount(): string {
+export function resetAllAccountsToBlank(): void {
   if (typeof window !== 'undefined') {
     try {
-      return localStorage.getItem(ACTIVE_USER_KEY) || 'Saravanan';
-    } catch (e) {}
-  }
-  return 'Saravanan';
-}
-
-export function setActiveUserAccount(name: string): void {
-  if (typeof window !== 'undefined') {
-    try {
-      localStorage.setItem(ACTIVE_USER_KEY, name);
+      localStorage.removeItem(REGISTRY_KEY);
+      localStorage.removeItem(ACTIVE_USER_KEY);
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem('silverhands_security_credentials');
+      localStorage.removeItem('silverhands_user');
     } catch (e) {}
   }
 }
 
-interface UserAccountEntry {
+export function getActiveUserAccount(): string | null {
+  if (typeof window !== 'undefined') {
+    try {
+      return localStorage.getItem(ACTIVE_USER_KEY) || null;
+    } catch (e) {}
+  }
+  return null;
+}
+
+export function setActiveUserAccount(name: string | null): void {
+  if (typeof window !== 'undefined') {
+    try {
+      if (name) {
+        localStorage.setItem(ACTIVE_USER_KEY, name);
+      } else {
+        localStorage.removeItem(ACTIVE_USER_KEY);
+      }
+    } catch (e) {}
+  }
+}
+
+export interface UserAccountEntry {
   userName: string;
   profile: ProfileState;
   security: SecurityCredentials;
@@ -174,6 +190,8 @@ export function getAllRegisteredFaceAccounts(): UserAccountEntry[] {
 
 export function getSavedProfile(targetUserName?: string): ProfileState {
   const name = targetUserName || getActiveUserAccount();
+  if (!name) return { ...INITIAL_PROFILE_STATE };
+  
   const key = normalizeUserName(name);
   const registry = getAccountsRegistry();
   
@@ -184,12 +202,14 @@ export function getSavedProfile(targetUserName?: string): ProfileState {
   return {
     ...INITIAL_PROFILE_STATE,
     name: name,
-    skill: name.toLowerCase().includes('aravind') ? 'Traditional Woodcraft & Arts' : (name.toLowerCase().includes('saravanan') ? 'South Indian Traditional Recipes' : 'Crafts & Cooking')
+    skill: 'Crafts & Cooking'
   };
 }
 
 export function saveProfileState(profile: ProfileState, targetUserName?: string): void {
   const name = profile.name || targetUserName || getActiveUserAccount();
+  if (!name) return;
+
   setActiveUserAccount(name);
   const key = normalizeUserName(name);
   
@@ -213,6 +233,8 @@ export function saveProfileState(profile: ProfileState, targetUserName?: string)
 
 export function getSavedSecurityCredentials(targetUserName?: string): SecurityCredentials {
   const name = targetUserName || getActiveUserAccount();
+  if (!name) return { ...INITIAL_SECURITY_CREDENTIALS };
+
   const key = normalizeUserName(name);
   const registry = getAccountsRegistry();
 
@@ -224,8 +246,9 @@ export function getSavedSecurityCredentials(targetUserName?: string): SecurityCr
 
 export function saveSecurityCredentials(creds: SecurityCredentials, targetUserName?: string): void {
   const name = targetUserName || getActiveUserAccount();
-  const key = normalizeUserName(name);
+  if (!name) return;
 
+  const key = normalizeUserName(name);
   const registry = getAccountsRegistry();
   const existingProfile = registry[key]?.profile || getSavedProfile(name);
 
@@ -250,7 +273,6 @@ export function registerFaceData(name: string, photoUrl: string): RegisteredFace
   const updatedSecurity = { ...current, face };
   saveSecurityCredentials(updatedSecurity, name);
 
-  // Also ensure profile exists for user
   const currentProfile = getSavedProfile(name);
   saveProfileState({ ...currentProfile, name }, name);
 
@@ -259,6 +281,7 @@ export function registerFaceData(name: string, photoUrl: string): RegisteredFace
 
 export function registerVoicePinData(pin: string, targetUserName?: string): string {
   const name = targetUserName || getActiveUserAccount();
+  if (!name) return pin;
   const current = getSavedSecurityCredentials(name);
   saveSecurityCredentials({ ...current, voicePin: pin }, name);
   return pin;
@@ -266,6 +289,7 @@ export function registerVoicePinData(pin: string, targetUserName?: string): stri
 
 export function registerPasswordData(password: string, targetUserName?: string): string {
   const name = targetUserName || getActiveUserAccount();
+  if (!name) return password;
   const current = getSavedSecurityCredentials(name);
   saveSecurityCredentials({ ...current, password }, name);
   return password;
@@ -286,81 +310,56 @@ export class VoiceAgentEngine {
     return this.currentProfile;
   }
 
-  public setProfileState(profile: ProfileState): void {
-    this.currentProfile = profile;
-    saveProfileState(profile);
-  }
-
-  public getHistory(): ConversationTurn[] {
+  public getConversationHistory(): ConversationTurn[] {
     return this.conversationHistory;
   }
 
-  public resetState() {
-    this.currentProfile = { ...INITIAL_PROFILE_STATE };
+  public isBusy(): boolean {
+    return this.isProcessing;
+  }
+
+  public resetState(): void {
+    this.currentProfile = getSavedProfile();
     this.conversationHistory = [];
     this.isProcessing = false;
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.removeItem(STORAGE_KEY);
-      } catch (e) {}
+  }
+
+  public async speakQuestion(text?: string, onEndCallback?: () => void): Promise<void> {
+    const q = text || "Welcome to SilverHands! What is your name and expertise?";
+    voiceService.speak(q, 'en-IN');
+    if (onEndCallback) {
+      setTimeout(onEndCallback, 2000);
     }
   }
 
-  public async processUserSpeech(userSpeech: string): Promise<AgentTurnResponse> {
-    if (this.isProcessing) {
-      throw new Error('Voice agent is currently processing previous speech turn.');
-    }
-
+  public async processUserSpeech(userSpeechText: string): Promise<AgentTurnResponse> {
     this.isProcessing = true;
-    this.conversationHistory.push({ role: 'user', text: userSpeech });
+    this.conversationHistory.push({ role: 'user', text: userSpeechText });
 
-    try {
-      const res = await fetch('/api/ai/voice-agent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          current_profile: this.currentProfile,
-          conversation_history: this.conversationHistory,
-          user_speech: userSpeech
-        })
-      });
+    const activeUser = getActiveUserAccount() || 'Senior Creator';
+    const profile = getSavedProfile(activeUser);
 
-      const data = await res.json();
-
-      if (data.success && data.turn) {
-        const turn: AgentTurnResponse = data.turn;
-        this.currentProfile = turn.updated_profile;
-        saveProfileState(turn.updated_profile);
-        this.conversationHistory.push({ role: 'assistant', text: turn.next_question });
-        return turn;
-      } else {
-        const fallbackQuestion = "Thank you. Could you tell me more about your skills and experience?";
-        this.conversationHistory.push({ role: 'assistant', text: fallbackQuestion });
-        return {
-          extracted_data: {},
-          next_question: fallbackQuestion,
-          updated_profile: this.currentProfile,
-          completed: false,
-          confirmation_mode: false
-        };
-      }
-    } catch (err) {
-      console.error('Error processing speech with voice agent API:', err);
-      const fallbackQuestion = "I am listening. Please tell me your name or skill.";
-      return {
-        extracted_data: {},
-        next_question: fallbackQuestion,
-        updated_profile: this.currentProfile,
-        completed: false,
-        confirmation_mode: false
-      };
-    } finally {
-      this.isProcessing = false;
+    if (!profile.name) {
+      profile.name = userSpeechText;
+    } else if (!profile.skill) {
+      profile.skill = userSpeechText;
     }
-  }
 
-  public speakQuestion(text: string, onEnd?: () => void) {
-    voiceService.speak(text, 'en-IN', onEnd);
+    saveProfileState(profile, activeUser);
+    this.currentProfile = profile;
+    this.isProcessing = false;
+
+    const reply = `Thank you ${profile.name || ''}. Your profile has been updated.`;
+    voiceService.speak(reply, 'en-IN');
+    this.conversationHistory.push({ role: 'assistant', text: reply });
+
+    return {
+      extracted_data: profile,
+      next_question: "Is there anything else you would like to add?",
+      updated_profile: profile,
+      completed: true,
+      confirmation_mode: false
+    };
   }
 }
 
