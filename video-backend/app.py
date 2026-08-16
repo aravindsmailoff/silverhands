@@ -43,6 +43,7 @@ app.add_middleware(
 )
 
 app.mount("/videos/videos", StaticFiles(directory=OUTPUT_DIR), name="videos_fallback")
+app.mount("/videos/sessions", StaticFiles(directory=SESSIONS_DIR), name="sessions_fallback_videos")
 app.mount("/videos", StaticFiles(directory=OUTPUT_DIR), name="videos")
 app.mount("/sessions", StaticFiles(directory=SESSIONS_DIR), name="sessions")
 

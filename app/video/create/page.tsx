@@ -487,6 +487,8 @@ export default function CreateVideoPage() {
     setIsSaving(true);
     try {
       const profile = getSavedProfile();
+      
+      // 1. Save the public short (Posted / Public)
       await fetch('/api/videos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -495,20 +497,53 @@ export default function CreateVideoPage() {
           description: clip.hook_text || clip.title || '',
           videoUrl: clip.video_url || '',
           creatorName: profile?.name,
+          isPublic: true,
         }),
       });
+
+      // 2. Save the private full video (Saved / Private)
+      if (sessionId) {
+        await fetch('/api/videos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            topic: `[Full Video] ${subject || 'Skill Lesson'}`,
+            description: 'Raw recorded video before AI reframing (Private).',
+            videoUrl: `/videos/sessions/${sessionId}/source.mp4`,
+            creatorName: profile?.name,
+            isPublic: false,
+          }),
+        });
+      }
       
       // Fallback for when Postgres is disconnected
       try {
         const savedVideos = JSON.parse(localStorage.getItem('silverhands_recorded_videos') || '[]');
+        
+        // Push public short
         savedVideos.push({
-          id: `vid-${Date.now()}`,
+          id: `vid-${Date.now()}-short`,
           topic: clip.title || subject || 'SilverHands Video',
           description: clip.hook_text || clip.title || '',
           videoUrl: clip.video_url || '',
           creatorName: profile?.name,
+          is_public: true,
           recordedAt: new Date().toISOString()
         });
+
+        // Push private full video
+        if (sessionId) {
+          savedVideos.push({
+            id: `vid-${Date.now()}-full`,
+            topic: `[Full Video] ${subject || 'Skill Lesson'}`,
+            description: 'Raw recorded video before AI reframing (Private).',
+            videoUrl: `/videos/sessions/${sessionId}/source.mp4`,
+            creatorName: profile?.name,
+            is_public: false,
+            recordedAt: new Date().toISOString()
+          });
+        }
+
         localStorage.setItem('silverhands_recorded_videos', JSON.stringify(savedVideos));
       } catch (e) {
         console.error('Failed to save to local storage', e);

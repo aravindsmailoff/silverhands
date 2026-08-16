@@ -126,6 +126,7 @@ export async function initDatabaseSchema(): Promise<{ success: boolean; message:
       description TEXT,
       video_url TEXT NOT NULL,
       video_data TEXT,
+      is_public BOOLEAN DEFAULT true,
       recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -239,6 +240,12 @@ export async function initDatabaseSchema(): Promise<{ success: boolean; message:
 
   try {
     await pool.query(schemaSql);
+    // Alter existing tables to add is_public column if it doesn't exist
+    try {
+      await pool.query('ALTER TABLE recorded_videos ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT true;');
+    } catch (alterErr) {
+      console.warn('[DB] ALTER TABLE error (is_public):', alterErr);
+    }
     console.log('[DB] Railway PostgreSQL normalized schema initialized successfully.');
     return { success: true, message: 'PostgreSQL normalized schema created successfully.' };
   } catch (err: any) {

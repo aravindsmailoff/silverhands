@@ -10,7 +10,7 @@ export async function GET(req: Request) {
 
     if (pool) {
       try {
-        let query = `SELECT id, creator_name, topic, description, video_url, video_data, recorded_at FROM recorded_videos`;
+        let query = `SELECT id, creator_name, topic, description, video_url, video_data, is_public, recorded_at FROM recorded_videos`;
         const params: any[] = [];
 
         if (creatorName) {
@@ -30,11 +30,12 @@ export async function GET(req: Request) {
       .filter((item: any) => item.video_url)
       .map((item: any) => ({
         id: item.id,
-        creator_name: item.owner_name,
-        topic: item.title,
+        creator_name: item.owner_name || item.creator_name,
+        topic: item.title || item.topic,
         description: item.description,
         video_url: item.video_url,
-        recorded_at: item.created_at
+        is_public: item.is_public !== undefined ? item.is_public : true,
+        recorded_at: item.created_at || item.recorded_at
       }));
 
     if (creatorName) {
@@ -51,7 +52,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { topic, description, videoUrl, videoData, creatorName } = body;
+    const { topic, description, videoUrl, videoData, creatorName, isPublic = true } = body;
 
     if (!topic) {
       return NextResponse.json({ error: 'Video topic is required' }, { status: 400 });
@@ -67,6 +68,7 @@ export async function POST(req: Request) {
       topic,
       description,
       video_url: url,
+      is_public: isPublic,
       recorded_at: new Date().toISOString()
     };
 
@@ -75,11 +77,11 @@ export async function POST(req: Request) {
     if (pool) {
       try {
         await pool.query(
-          `INSERT INTO recorded_videos (id, creator_name, topic, description, video_url, video_data, recorded_at)
-           VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-          [videoId, creator, topic, description || null, url, videoData || null]
+          `INSERT INTO recorded_videos (id, creator_name, topic, description, video_url, video_data, is_public, recorded_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+          [videoId, creator, topic, description || null, url, videoData || null, isPublic]
         );
-        console.log(`[DB] Video "${topic}" stored successfully for creator ${creator}.`);
+        console.log(`[DB] Video "${topic}" (public=${isPublic}) stored successfully for creator ${creator}.`);
       } catch (dbErr) {
         console.warn('[DB] Video insert SQL error, falling back to memory:', dbErr);
         memoryStore.listings.unshift({ ...newVideo, owner_name: creator, title: topic });

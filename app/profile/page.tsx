@@ -88,7 +88,8 @@ export default function ProfilePage() {
               topic: v.topic,
               description: v.description,
               recordedAt: new Date(v.recorded_at).toLocaleDateString(),
-              videoUrl: v.video_data || v.video_url
+              videoUrl: v.video_data || v.video_url,
+              isPublic: v.is_public !== undefined ? v.is_public : true
             }));
           }
 
@@ -107,7 +108,8 @@ export default function ProfilePage() {
                 topic: lv.topic,
                 description: lv.description,
                 recordedAt: lv.recordedAt ? new Date(lv.recordedAt).toLocaleDateString() : new Date().toLocaleDateString(),
-                videoUrl: lv.videoUrl
+                videoUrl: lv.videoUrl,
+                isPublic: lv.is_public !== undefined ? lv.is_public : true
               });
             }
           });
@@ -133,6 +135,8 @@ export default function ProfilePage() {
   };
 
   const displayName = profile.name || 'Not provided yet';
+  const publicVideos = recordedVideos.filter(v => v.isPublic);
+  const privateVideos = recordedVideos.filter(v => !v.isPublic);
   const displaySkills = Array.isArray(profile.skills) && profile.skills.length > 0
     ? profile.skills
     : (profile.skill ? [{ name: profile.skill, type: 'primary' as const, experience_years: profile.experience_years ?? null }] : []);
@@ -318,41 +322,48 @@ export default function ProfilePage() {
             </div>
 
             {/* Video Showcase Widget */}
-            <div className="bg-white border-2 border-[#E3E2E0] rounded-3xl p-8 shadow-md space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-extrabold text-[#031635]">Featured Video Lessons</h2>
+            <div className="bg-white border-2 border-[#E3E2E0] rounded-3xl p-8 shadow-md space-y-6">
+              <div className="flex items-center justify-between border-b border-[#E3E2E0] pb-4">
+                <div>
+                  <h2 className="text-2xl font-extrabold text-[#031635]">Featured Video Lessons</h2>
+                  <p className="text-xs text-[#75777F] mt-1">Publicly posted shorts visible on your profile.</p>
+                </div>
                 <div className="flex items-center gap-2">
                   {recordedVideos.length > 0 && (
                     <button
                       onClick={clearOldVideos}
                       className="text-xs font-bold text-rose-700 hover:underline flex items-center gap-1 bg-rose-50 px-3 py-1.5 rounded-full border border-rose-200"
                     >
-                      🗑️ Clear Old Test Videos
+                      🗑️ Clear Cache
                     </button>
                   )}
                   <button
                     onClick={() => router.push('/video/create')}
-                    className="text-sm font-bold text-[#031635] hover:underline flex items-center gap-1 bg-[#D8E2FF] px-4 py-2 rounded-full border border-[#031635]/20"
+                    className="text-sm font-bold text-[#031635] hover:underline flex items-center gap-1 bg-[#D8E2FF] px-4 py-2 rounded-full border border-[#031635]/20 shadow-sm"
                   >
                     <Edit3 className="w-4 h-4" /> Record New Video
                   </button>
                 </div>
               </div>
 
-              {recordedVideos.length > 0 ? (
-                <div className="space-y-4">
-                  {recordedVideos.map((vid, idx) => (
-                    <div key={idx} className="space-y-2">
-                      <div className="w-full bg-slate-900 rounded-2xl overflow-hidden border-2 border-[#031635] shadow-lg">
-                        <video src={vid.videoUrl} controls className="w-full max-h-[360px] object-cover" />
+              {/* Public posted videos (Shorts) */}
+              {publicVideos.length > 0 ? (
+                <div className="space-y-6">
+                  {publicVideos.map((vid, idx) => (
+                    <div key={idx} className="space-y-3 bg-[#FAF9F6] border border-[#E3E2E0] p-5 rounded-2xl shadow-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="bg-[#2D5A27]/10 text-[#2D5A27] text-xs font-bold px-3 py-1 rounded-full border border-[#2D5A27]/30 flex items-center gap-1">
+                          🌐 Public Lesson (AI Short)
+                        </span>
+                        <span className="text-xs font-semibold text-[#75777F]">Posted on {vid.recordedAt}</span>
                       </div>
-                      <div className="flex flex-col gap-2 px-1">
-                        <div className="flex items-center justify-between">
-                          <span className="font-extrabold text-[#031635] text-lg">&quot;{vid.topic || 'Senior Lesson Video'}&quot;</span>
-                          <span className="text-xs font-semibold text-[#75777F]">Recorded on {vid.recordedAt}</span>
-                        </div>
-                        <p className="text-sm text-[#031635] bg-[#FAF9F6] p-3.5 rounded-xl border border-[#E3E2E0] leading-relaxed font-medium">
-                          ✨ <span className="font-extrabold text-[#031635]">Video Description:</span> {vid.description || vid.topic || 'Step-by-step traditional recipe and craftsmanship lesson recorded by senior creator.'}
+                      <div className="w-full bg-slate-900 rounded-xl overflow-hidden border border-[#031635] shadow-md relative" style={{ aspectRatio: '16/9' }}>
+                        <video src={vid.videoUrl} controls className="w-full h-full object-cover" />
+                      </div>
+                      <div className="space-y-2">
+                        <h3 className="font-extrabold text-[#031635] text-lg">&quot;{vid.topic || 'Senior Lesson Video'}&quot;</h3>
+                        <p className="text-sm text-[#44474E] leading-relaxed">
+                          ✨ <span className="font-extrabold text-[#031635]">AI Description:</span> {vid.description || 'Step-by-step traditional recipe and craftsmanship lesson recorded by senior creator.'}
                         </p>
                       </div>
                     </div>
@@ -365,7 +376,38 @@ export default function ProfilePage() {
                       ▶
                     </div>
                     <div className="text-lg font-bold">Preview Video Lesson ({displaySkill})</div>
-                    <div className="text-xs text-slate-400">1,240 views • Verified Elder Creator</div>
+                    <div className="text-xs text-slate-400">No public shorts posted yet. Record and save a lesson to showcase your craft!</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Private saved videos (Full-length raw recordings) */}
+              {privateVideos.length > 0 && (
+                <div className="pt-6 border-t border-[#E3E2E0] space-y-4">
+                  <div>
+                    <h3 className="text-xl font-extrabold text-[#031635] flex items-center gap-2">
+                      🔒 Private Video Vault
+                    </h3>
+                    <p className="text-xs text-[#75777F] mt-0.5">Full-length raw recordings. Only you can view these saved files.</p>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {privateVideos.map((vid, idx) => (
+                      <div key={idx} className="bg-[#FAF9F6] border border-[#E3E2E0] p-4 rounded-2xl shadow-sm space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="bg-amber-600/10 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-md border border-amber-600/30 flex items-center gap-1">
+                            🔒 Saved (Full Video)
+                          </span>
+                          <span className="text-[10px] font-semibold text-[#75777F]">{vid.recordedAt}</span>
+                        </div>
+                        <div className="w-full bg-slate-900 rounded-xl overflow-hidden border border-slate-700 shadow-sm relative" style={{ aspectRatio: '16/9' }}>
+                          <video src={vid.videoUrl} controls className="w-full h-full object-cover" />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-[#031635] text-sm truncate">{vid.topic || 'Saved Raw Video'}</h4>
+                          <p className="text-xs text-[#75777F] mt-1 line-clamp-2">{vid.description || 'Raw source video before AI compilation.'}</p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
