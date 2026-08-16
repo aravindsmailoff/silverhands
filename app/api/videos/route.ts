@@ -1,31 +1,45 @@
 import { NextResponse } from 'next/server';
 import { getPool, memoryStore } from '@/lib/db';
 
-export async function GET() {
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const creatorName = searchParams.get('creatorName');
+
   try {
     const pool = await getPool();
 
     if (pool) {
       try {
-        const res = await pool.query(
-          `SELECT id, creator_name, topic, description, video_url, video_data, recorded_at FROM recorded_videos ORDER BY recorded_at DESC`
-        );
+        let query = `SELECT id, creator_name, topic, description, video_url, video_data, recorded_at FROM recorded_videos`;
+        const params: any[] = [];
+
+        if (creatorName) {
+          query += ` WHERE LOWER(creator_name) = LOWER($1)`;
+          params.push(creatorName);
+        }
+        query += ` ORDER BY recorded_at DESC`;
+
+        const res = await pool.query(query, params);
         return NextResponse.json({ success: true, videos: res.rows, source: 'postgresql' });
       } catch (dbErr) {
         console.warn('[DB] Video SQL query error, falling back to memory store:', dbErr);
       }
     }
 
-    const videos = memoryStore.listings
+    let videos = memoryStore.listings
       .filter((item: any) => item.video_url)
       .map((item: any) => ({
         id: item.id,
-        creator_name: item.owner_name || 'Senior Creator',
+        creator_name: item.owner_name,
         topic: item.title,
         description: item.description,
         video_url: item.video_url,
         recorded_at: item.created_at
       }));
+
+    if (creatorName) {
+      videos = videos.filter((v: any) => (v.creator_name || '').toLowerCase() === creatorName.toLowerCase());
+    }
 
     return NextResponse.json({ success: true, videos, source: 'memory' });
   } catch (err: any) {
@@ -44,7 +58,7 @@ export async function POST(req: Request) {
     }
 
     const videoId = `vid-${Date.now()}`;
-    const creator = creatorName || 'Senior Creator';
+    const creator = creatorName || 'Creator';
     const url = videoUrl || 'blob:video-recorded';
 
     const pool = await getPool();
@@ -56,37 +70,25 @@ export async function POST(req: Request) {
            VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
           [videoId, creator, topic, description || null, url, videoData || null]
         );
-        console.log(`[DB] Video "${topic}" stored successfully in PostgreSQL database with description.`);
+        console.log(`[DB] Video "${topic}" stored successfully for creator ${creator}.`);
       } catch (dbErr) {
-        console.warn('[DB] SQL video insert warning, storing in memory:', dbErr);
+        console.warn('[DB] Video insert SQL error:', dbErr);
       }
     }
 
-    // Also store listing in memoryStore
-    memoryStore.listings.unshift({
-      id: videoId,
-      owner_user_id: 'usr-senior-1',
-      owner_name: creator,
-      type: 'video_lesson',
-      title: topic,
-      description: description || `Video lesson tutorial on ${topic}`,
-      price: 0,
-      unit: 'video',
-      lat: 28.6139,
-      lng: 77.2090,
-      locality_label: 'New Delhi',
-      status: 'live',
-      category: 'crafts',
-      created_at: new Date().toISOString()
-    } as any);
-
     return NextResponse.json({
       success: true,
-      videoId,
-      message: 'Video lesson recorded and stored permanently in PostgreSQL database.'
+      video: {
+        id: videoId,
+        creator_name: creator,
+        topic,
+        description,
+        video_url: url,
+        recorded_at: new Date().toISOString()
+      }
     });
   } catch (err: any) {
-    console.error('Error storing video in database:', err);
+    console.error('Error saving video to database:', err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }

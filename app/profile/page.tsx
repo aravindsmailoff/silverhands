@@ -44,59 +44,65 @@ export default function ProfilePage() {
       }
     }
 
+    const currentName = activeName || loaded.name || '';
+
     // Fetch user details & Face ID photo from Railway PostgreSQL Database API
-    fetch('/api/users/sync')
-      .then(res => res.json())
-      .then(data => {
-        if (data.success && data.accounts && data.accounts.length > 0) {
-          const userAcc = data.accounts.find((a: any) => 
-            (a.user_name || '').toLowerCase() === (activeName || loaded.name || '').toLowerCase()
-          ) || data.accounts[0];
+    if (currentName) {
+      fetch('/api/users/sync')
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.accounts && data.accounts.length > 0) {
+            const userAcc = data.accounts.find((a: any) => 
+              (a.user_name || '').toLowerCase() === currentName.toLowerCase()
+            );
 
-          if (userAcc) {
-            setProfile(prev => ({
-              ...prev,
-              name: userAcc.user_name || prev.name,
-              skill: userAcc.skill || prev.skill || 'Traditional Crafts & Cooking',
-              experience_years: userAcc.experience_years || prev.experience_years || 30,
-              location: userAcc.location || prev.location || 'Mylapore, Chennai',
-              language: userAcc.language || prev.language || 'Tamil & English',
-              services: (userAcc.services && userAcc.services !== '[]') 
-                ? (typeof userAcc.services === 'string' ? JSON.parse(userAcc.services) : userAcc.services) 
-                : (prev.services.length > 0 ? prev.services : ['Online Lessons', 'Handmade Products'])
-            }));
+            if (userAcc) {
+              setProfile(prev => ({
+                ...prev,
+                name: userAcc.user_name || prev.name,
+                skill: userAcc.skill || prev.skill,
+                experience_years: userAcc.experience_years || prev.experience_years,
+                location: userAcc.location || prev.location,
+                language: userAcc.language || prev.language,
+                services: (userAcc.services && userAcc.services !== '[]') 
+                  ? (typeof userAcc.services === 'string' ? JSON.parse(userAcc.services) : userAcc.services) 
+                  : prev.services
+              }));
 
-            if (userAcc.face_photo_url) {
-              setUserFacePhoto(userAcc.face_photo_url);
+              if (userAcc.face_photo_url) {
+                setUserFacePhoto(userAcc.face_photo_url);
+              }
             }
           }
-        }
-      })
-      .catch(err => console.warn('[PostgreSQL Sync Warning]:', err));
+        })
+        .catch(err => console.warn('[PostgreSQL Sync Warning]:', err));
 
-    // Fetch stored videos directly from PostgreSQL Database API
-    fetch('/api/videos')
-      .then(res => res.json())
-      .then(data => {
-        if (data.success && data.videos && data.videos.length > 0) {
-          setRecordedVideos(data.videos.map((v: any) => ({
-            id: v.id,
-            topic: v.topic,
-            description: v.description,
-            recordedAt: new Date(v.recorded_at).toLocaleDateString(),
-            videoUrl: v.video_data || v.video_url
-          })));
-        } else if (typeof window !== 'undefined') {
-          const saved = JSON.parse(localStorage.getItem('silverhands_recorded_videos') || '[]');
-          setRecordedVideos(saved);
-        }
-      })
-      .catch(() => {
-        if (typeof window !== 'undefined') {
-          const saved = JSON.parse(localStorage.getItem('silverhands_recorded_videos') || '[]');
-          setRecordedVideos(saved);
-        }
-      });
+      // Fetch stored videos belonging STRICTLY to this user
+      fetch(`/api/videos?creatorName=${encodeURIComponent(currentName)}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.videos) {
+            setRecordedVideos(data.videos.map((v: any) => ({
+              id: v.id,
+              topic: v.topic,
+              description: v.description,
+              recordedAt: new Date(v.recorded_at).toLocaleDateString(),
+              videoUrl: v.video_data || v.video_url
+            })));
+          } else if (typeof window !== 'undefined') {
+            const saved = JSON.parse(localStorage.getItem('silverhands_recorded_videos') || '[]');
+            const userVids = saved.filter((v: any) => !v.creatorName || (v.creatorName || '').toLowerCase() === currentName.toLowerCase());
+            setRecordedVideos(userVids);
+          }
+        })
+        .catch(() => {
+          if (typeof window !== 'undefined') {
+            const saved = JSON.parse(localStorage.getItem('silverhands_recorded_videos') || '[]');
+            const userVids = saved.filter((v: any) => !v.creatorName || (v.creatorName || '').toLowerCase() === currentName.toLowerCase());
+            setRecordedVideos(userVids);
+          }
+        });
+    }
   }, []);
 
   const clearOldVideos = () => {
