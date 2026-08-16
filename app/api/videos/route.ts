@@ -99,3 +99,34 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }
+
+export async function DELETE(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get('id');
+
+  if (!id) {
+    return NextResponse.json({ error: 'id parameter is required' }, { status: 400 });
+  }
+
+  try {
+    const pool = await getPool();
+    if (pool) {
+      try {
+        await pool.query('DELETE FROM recorded_videos WHERE id = $1', [id]);
+        console.log(`[DB] Video with ID "${id}" deleted successfully.`);
+      } catch (dbErr) {
+        console.warn('[DB] Video deletion SQL error, falling back to memory store:', dbErr);
+      }
+    }
+
+    // Also delete from memoryStore listings if present
+    const initialLength = memoryStore.listings.length;
+    memoryStore.listings = memoryStore.listings.filter((item: any) => item.id !== id);
+    console.log(`[Memory] Deleted video ${id}. Remained: ${memoryStore.listings.length} (from ${initialLength})`);
+
+    return NextResponse.json({ success: true, message: 'Video deleted successfully' });
+  } catch (err: any) {
+    console.error('Error deleting video:', err);
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  }
+}

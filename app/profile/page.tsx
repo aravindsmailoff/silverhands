@@ -2,15 +2,19 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { getSavedProfile, ProfileState, voiceAgent, setActiveUserAccount, getActiveUserAccount, getSavedSecurityCredentials } from '@/lib/voice-agent';
 import { 
   ShieldCheck, Mic, CheckCircle2, Star, MapPin, Languages, 
-  ChefHat, Award, ArrowRight, Edit3, ArrowLeft, LogOut 
+  ChefHat, Award, ArrowRight, Edit3, ArrowLeft, LogOut, Trash2
 } from 'lucide-react';
 
 export default function ProfilePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const queryUsername = searchParams ? searchParams.get('username') : null;
+  const [isOwnProfile, setIsOwnProfile] = useState(true);
+
   const [profile, setProfile] = useState<ProfileState>({
     name: null,
     skill: null,
@@ -26,28 +30,34 @@ export default function ProfilePage() {
 
   useEffect(() => {
     const activeName = getActiveUserAccount();
-    const loaded = getSavedProfile(activeName || undefined);
-    if (!activeName && (!loaded || !loaded.name)) {
-      router.push('/');
-      return;
-    }
+    const isOwn = !queryUsername || (activeName && queryUsername.toLowerCase() === activeName.toLowerCase());
+    setIsOwnProfile(!!isOwn);
 
-    if (loaded && loaded.name) {
+    // If it's the user's own profile, but they are not logged in, redirect them to login/home
+    if (isOwn && !activeName) {
+      const loaded = getSavedProfile(undefined);
+      if (!loaded || !loaded.name) {
+        router.push('/');
+        return;
+      }
       setProfile(loaded);
     }
 
-    // Check Face ID snapshot from local security credentials
-    if (activeName) {
+    if (isOwn && activeName) {
+      const loaded = getSavedProfile(activeName);
+      if (loaded && loaded.name) {
+        setProfile(loaded);
+      }
       const sec = getSavedSecurityCredentials(activeName);
       if (sec && sec.face && sec.face.photoUrl) {
         setUserFacePhoto(sec.face.photoUrl);
       }
     }
 
-    const currentName = activeName || loaded.name || '';
+    const currentName = isOwn ? (activeName || '') : (queryUsername || '');
 
-    // Fetch user details & Face ID photo from Railway PostgreSQL Database API
     if (currentName) {
+      // Fetch details from sync API
       fetch('/api/users/sync')
         .then(res => res.json())
         .then(data => {
@@ -57,17 +67,17 @@ export default function ProfilePage() {
             );
 
             if (userAcc) {
-              setProfile(prev => ({
-                ...prev,
-                name: userAcc.user_name || prev.name,
-                skill: userAcc.skill !== null && userAcc.skill !== undefined ? userAcc.skill : prev.skill,
-                experience_years: userAcc.experience_years !== null && userAcc.experience_years !== undefined ? Number(userAcc.experience_years) : prev.experience_years,
-                location: userAcc.location !== null && userAcc.location !== undefined ? userAcc.location : prev.location,
-                language: userAcc.language || prev.language,
+              setProfile({
+                name: userAcc.user_name,
+                skill: userAcc.skill,
+                experience_years: userAcc.experience_years !== null && userAcc.experience_years !== undefined ? Number(userAcc.experience_years) : null,
+                location: userAcc.location,
+                language: userAcc.language || 'English',
                 services: (userAcc.services && userAcc.services !== '[]') 
                   ? (typeof userAcc.services === 'string' ? JSON.parse(userAcc.services) : userAcc.services) 
-                  : prev.services
-              }));
+                  : [],
+                availability: userAcc.availability || null
+              });
 
               if (userAcc.face_photo_url) {
                 setUserFacePhoto(userAcc.face_photo_url);
@@ -94,7 +104,7 @@ export default function ProfilePage() {
           }
 
           let localVids: any[] = [];
-          if (typeof window !== 'undefined') {
+          if (isOwn && typeof window !== 'undefined') {
             const saved = JSON.parse(localStorage.getItem('silverhands_recorded_videos') || '[]');
             localVids = saved.filter((v: any) => !v.creatorName || (v.creatorName || '').toLowerCase() === currentName.toLowerCase());
           }
@@ -117,14 +127,35 @@ export default function ProfilePage() {
           setRecordedVideos(merged);
         })
         .catch(() => {
-          if (typeof window !== 'undefined') {
+          if (isOwn && typeof window !== 'undefined') {
             const saved = JSON.parse(localStorage.getItem('silverhands_recorded_videos') || '[]');
             const userVids = saved.filter((v: any) => !v.creatorName || (v.creatorName || '').toLowerCase() === currentName.toLowerCase());
             setRecordedVideos(userVids);
           }
         });
     }
-  }, []);
+  }, [queryUsername]);
+
+  const handleDeleteVideo = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this video?")) return;
+    try {
+      const res = await fetch(`/api/videos?id=${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        setRecordedVideos(prev => prev.filter(v => v.id !== id));
+        if (typeof window !== 'undefined') {
+          const saved = JSON.parse(localStorage.getItem('silverhands_recorded_videos') || '[]');
+          const filtered = saved.filter((v: any) => v.id !== id);
+          localStorage.setItem('silverhands_recorded_videos', JSON.stringify(filtered));
+        }
+      } else {
+        alert("Failed to delete video: " + (data.error || "Unknown error"));
+      }
+    } catch (err) {
+      console.error('Failed to delete video:', err);
+      alert("Error deleting video. Is the server running?");
+    }
+  };
 
   const clearOldVideos = () => {
     if (typeof window !== 'undefined') {
@@ -168,7 +199,10 @@ export default function ProfilePage() {
               <Link href="/dashboard" className="px-5 py-2 rounded-full text-[#44474E] hover:text-[#031635] font-semibold text-sm transition">
                 Dashboard
               </Link>
-              <Link href="/profile" className="px-5 py-2 rounded-full bg-[#031635] text-white font-bold text-sm shadow-sm">
+              <Link href="/providers" className="px-5 py-2 rounded-full text-[#44474E] hover:text-[#031635] font-semibold text-sm transition">
+                Search Providers
+              </Link>
+              <Link href="/profile" className={`px-5 py-2 rounded-full text-sm transition ${isOwnProfile ? 'bg-[#031635] text-white font-bold shadow-sm' : 'text-[#44474E] hover:text-[#031635] font-semibold'}`}>
                 My Profile
               </Link>
               <Link href="/video/create" className="px-5 py-2 rounded-full text-[#44474E] hover:text-[#031635] font-semibold text-sm transition">
@@ -184,17 +218,19 @@ export default function ProfilePage() {
             >
               <ArrowLeft className="w-4 h-4" /> Back to Dashboard
             </button>
-            <button
-              onClick={() => {
-                if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.cancel();
-                setActiveUserAccount('');
-                voiceAgent.resetState();
-                router.push('/');
-              }}
-              className="flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-sm font-bold transition shadow-sm"
-            >
-              <LogOut className="w-4 h-4" /> Logout
-            </button>
+            {isOwnProfile && (
+              <button
+                onClick={() => {
+                  if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.cancel();
+                  setActiveUserAccount('');
+                  voiceAgent.resetState();
+                  router.push('/');
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-sm font-bold transition shadow-sm"
+              >
+                <LogOut className="w-4 h-4" /> Logout
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -232,14 +268,16 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            <div className="shrink-0 flex flex-col gap-3 w-full md:w-auto">
-              <button
-                onClick={() => router.push('/')}
-                className="px-6 py-3.5 bg-[#FDBC13] text-[#261900] font-bold rounded-2xl shadow-md hover:bg-[#F3B20B] transition flex items-center justify-center gap-2"
-              >
-                <Mic className="w-5 h-5" /> Edit Profile with Voice
-              </button>
-            </div>
+            {isOwnProfile && (
+              <div className="shrink-0 flex flex-col gap-3 w-full md:w-auto">
+                <button
+                  onClick={() => router.push('/')}
+                  className="px-6 py-3.5 bg-[#FDBC13] text-[#261900] font-bold rounded-2xl shadow-md hover:bg-[#F3B20B] transition flex items-center justify-center gap-2"
+                >
+                  <Mic className="w-5 h-5" /> Edit Profile with Voice
+                </button>
+              </div>
+            )}
           </div>
         </section>
 
@@ -329,39 +367,48 @@ export default function ProfilePage() {
                   <p className="text-xs text-[#75777F] mt-1">Publicly posted shorts visible on your profile.</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  {recordedVideos.length > 0 && (
+                  {isOwnProfile && (
                     <button
-                      onClick={clearOldVideos}
-                      className="text-xs font-bold text-rose-700 hover:underline flex items-center gap-1 bg-rose-50 px-3 py-1.5 rounded-full border border-rose-200"
+                      onClick={() => router.push('/video/create')}
+                      className="text-sm font-bold text-[#031635] hover:underline flex items-center gap-1 bg-[#D8E2FF] px-4 py-2 rounded-full border border-[#031635]/20 shadow-sm"
                     >
-                      🗑️ Clear Cache
+                      <Edit3 className="w-4 h-4" /> Record New Video
                     </button>
                   )}
-                  <button
-                    onClick={() => router.push('/video/create')}
-                    className="text-sm font-bold text-[#031635] hover:underline flex items-center gap-1 bg-[#D8E2FF] px-4 py-2 rounded-full border border-[#031635]/20 shadow-sm"
-                  >
-                    <Edit3 className="w-4 h-4" /> Record New Video
-                  </button>
                 </div>
               </div>
 
               {/* Public posted videos (Shorts) */}
               {publicVideos.length > 0 ? (
-                <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {publicVideos.map((vid, idx) => (
-                    <div key={idx} className="space-y-3 bg-[#FAF9F6] border border-[#E3E2E0] p-5 rounded-2xl shadow-sm">
-                      <div className="flex items-center justify-between">
-                        <span className="bg-[#2D5A27]/10 text-[#2D5A27] text-xs font-bold px-3 py-1 rounded-full border border-[#2D5A27]/30 flex items-center gap-1">
-                          🌐 Public Lesson (AI Short)
-                        </span>
-                        <span className="text-xs font-semibold text-[#75777F]">Posted on {vid.recordedAt}</span>
+                    <div key={idx} className="space-y-3 bg-[#FAF9F6] border border-[#E3E2E0] p-5 rounded-2xl shadow-sm flex flex-col justify-between">
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="bg-[#2D5A27]/10 text-[#2D5A27] text-xs font-bold px-3 py-1 rounded-full border border-[#2D5A27]/30 flex items-center gap-1">
+                            🌐 Public Lesson (AI Short)
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold text-[#75777F]">{vid.recordedAt}</span>
+                            {isOwnProfile && (
+                              <button
+                                onClick={() => handleDeleteVideo(vid.id)}
+                                className="text-rose-600 hover:text-rose-800 p-1 hover:bg-rose-50 rounded-lg transition"
+                                title="Delete Video"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex justify-center">
+                          <div className="w-full max-w-[280px] bg-slate-900 rounded-2xl overflow-hidden border-2 border-[#031635] shadow-lg relative" style={{ aspectRatio: '9/16' }}>
+                            <video src={vid.videoUrl} controls className="w-full h-full object-cover" />
+                          </div>
+                        </div>
                       </div>
-                      <div className="w-full bg-slate-900 rounded-xl overflow-hidden border border-[#031635] shadow-md relative" style={{ aspectRatio: '16/9' }}>
-                        <video src={vid.videoUrl} controls className="w-full h-full object-cover" />
-                      </div>
-                      <div className="space-y-2">
-                        <h3 className="font-extrabold text-[#031635] text-lg">&quot;{vid.topic || 'Senior Lesson Video'}&quot;</h3>
+                      <div className="space-y-2 pt-2">
+                        <h3 className="font-extrabold text-[#031635] text-lg leading-snug">&quot;{vid.topic || 'Senior Lesson Video'}&quot;</h3>
                         <p className="text-sm text-[#44474E] leading-relaxed">
                           ✨ <span className="font-extrabold text-[#031635]">AI Description:</span> {vid.description || 'Step-by-step traditional recipe and craftsmanship lesson recorded by senior creator.'}
                         </p>
@@ -370,19 +417,23 @@ export default function ProfilePage() {
                   ))}
                 </div>
               ) : (
-                <div className="w-full bg-slate-900 text-white rounded-2xl h-64 flex items-center justify-center relative overflow-hidden shadow-inner">
-                  <div className="text-center space-y-2">
-                    <div className="w-16 h-16 bg-[#FDBC13] text-[#261900] rounded-full flex items-center justify-center mx-auto shadow-lg">
-                      ▶
+                <div className="w-full bg-[#FAF9F6] border-2 border-dashed border-[#E3E2E0] rounded-2xl h-64 flex items-center justify-center relative overflow-hidden">
+                  <div className="text-center space-y-2 max-w-sm px-4">
+                    <div className="w-16 h-16 bg-[#D8E2FF] text-[#031635] rounded-full flex items-center justify-center mx-auto shadow-sm text-2xl">
+                      🎥
                     </div>
-                    <div className="text-lg font-bold">Preview Video Lesson ({displaySkill})</div>
-                    <div className="text-xs text-slate-400">No public shorts posted yet. Record and save a lesson to showcase your craft!</div>
+                    <div className="text-lg font-extrabold text-[#031635]">Video Lessons Showcase</div>
+                    <div className="text-xs text-[#75777F]">
+                      {isOwnProfile 
+                        ? "No public shorts posted yet. Record and save a lesson in Video Studio to showcase your craft!"
+                        : "No public video lessons are showcased on this profile yet."}
+                    </div>
                   </div>
                 </div>
               )}
 
-              {/* Private saved videos (Full-length raw recordings) */}
-              {privateVideos.length > 0 && (
+              {/* Private saved videos (Full-length raw recordings) - Only visible to owner */}
+              {isOwnProfile && privateVideos.length > 0 && (
                 <div className="pt-6 border-t border-[#E3E2E0] space-y-4">
                   <div>
                     <h3 className="text-xl font-extrabold text-[#031635] flex items-center gap-2">
@@ -397,7 +448,16 @@ export default function ProfilePage() {
                           <span className="bg-amber-600/10 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-md border border-amber-600/30 flex items-center gap-1">
                             🔒 Saved (Full Video)
                           </span>
-                          <span className="text-[10px] font-semibold text-[#75777F]">{vid.recordedAt}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-semibold text-[#75777F]">{vid.recordedAt}</span>
+                            <button
+                              onClick={() => handleDeleteVideo(vid.id)}
+                              className="text-rose-600 hover:text-rose-800 p-1 hover:bg-rose-50 rounded-lg transition"
+                              title="Delete Video"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
                         <div className="w-full bg-slate-900 rounded-xl overflow-hidden border border-slate-700 shadow-sm relative" style={{ aspectRatio: '16/9' }}>
                           <video src={vid.videoUrl} controls className="w-full h-full object-cover" />

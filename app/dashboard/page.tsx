@@ -87,6 +87,17 @@ export default function DashboardPage() {
       border: 'border-emerald-200',
       onClick: () => alert('Your total earnings this month: ₹4,500\nApproved by your Guardian.'),
     },
+    {
+      id: 'search',
+      emoji: '🔍',
+      label: 'Search Providers',
+      sublabel: 'View other senior creators',
+      bg: 'bg-sky-50',
+      text: 'text-sky-900',
+      accent: 'text-sky-700',
+      border: 'border-sky-200',
+      onClick: () => router.push('/providers'),
+    },
   ];
 
   return (
@@ -198,6 +209,12 @@ export default function DashboardPage() {
             className="flex items-center gap-2 px-6 py-3 bg-white border-2 border-[#E3E2E0] hover:border-[#031635] rounded-2xl text-base font-bold text-[#031635] transition shadow-sm"
           >
             <User className="w-5 h-5" /> My Profile
+          </Link>
+          <Link
+            href="/providers"
+            className="flex items-center gap-2 px-6 py-3 bg-white border-2 border-[#E3E2E0] hover:border-[#031635] rounded-2xl text-base font-bold text-[#031635] transition shadow-sm"
+          >
+            🔍 Search Providers
           </Link>
         </div>
 
