@@ -133,7 +133,12 @@ export default function CreateAccountOnboardingPage() {
     e.preventDefault();
     setErrorMsg(null);
 
-    const userName = name.trim() || 'Senior Creator';
+    const userName = name.trim();
+    if (!userName) {
+      setErrorMsg("Please enter or speak your name.");
+      setStep(1);
+      return;
+    }
 
     if (password.length < 4) {
       setErrorMsg("Password must be at least 4 characters.");

@@ -8,9 +8,12 @@ import { CheckCircle2, RefreshCw, Volume2, Sparkles, ShieldCheck, UserCheck, Mic
 
 import SignInModal from '@/components/SignInModal';
 
+import { useRouter } from 'next/navigation';
+
 type AgentVisualState = 'IDLE' | 'AI_SPEAKING' | 'LISTENING_TO_YOU' | 'PROCESSING' | 'COMPLETED';
 
 export default function VoiceConversationalApp() {
+  const router = useRouter();
   const [agentState, setAgentState] = useState<AgentVisualState>('IDLE');
   const [currentAiQuestion, setCurrentAiQuestion] = useState<string>(
     "Welcome to SilverHands! I will help you create your profile using voice. What is your name?"
@@ -57,12 +60,9 @@ export default function VoiceConversationalApp() {
     setCurrentAiQuestion("Welcome to SilverHands! I will help you create your profile using voice. What is your name?");
   };
 
-  // Start a fresh new voice conversation loop
+  // Start Create Account onboarding flow
   const handleStartConversation = () => {
-    voiceAgent.resetState();
-    setProfileState(voiceAgent.getProfileState());
-    setHasStarted(true);
-    triggerAiSpeaking(currentAiQuestion);
+    router.push('/onboarding/voice');
   };
 
   // AI speaks question out loud, then opens mic automatically
