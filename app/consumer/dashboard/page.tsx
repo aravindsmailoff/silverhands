@@ -10,7 +10,7 @@ import {
 } from '@/lib/consumer-store';
 import { 
   Search, ShoppingBag, Video, Sparkles, Star, MapPin, 
-  CheckCircle2, Clock, Calendar, UserCheck, MessageSquare, Send, X, ArrowRight, ShieldCheck, LogOut, User, Play, Gift, Eye 
+  CheckCircle2, Clock, Calendar, UserCheck, MessageSquare, Send, X, ArrowRight, ShieldCheck, LogOut, User, Play, Gift, Eye, Heart 
 } from 'lucide-react';
 
 export default function ConsumerDashboardPage() {
@@ -32,6 +32,10 @@ export default function ConsumerDashboardPage() {
   const [selectedProvider, setSelectedProvider] = useState<ServiceProvider | null>(null);
   const [activeFreeSession, setActiveFreeSession] = useState<FreeLiveSession | null>(null);
   const [activeVideo, setActiveVideo] = useState<ProviderVideo | null>(null);
+  const [videoComments, setVideoComments] = useState<any[]>([]);
+  const [newCommentText, setNewCommentText] = useState('');
+  const [videoLikes, setVideoLikes] = useState<number>(0);
+  const [videoViews, setVideoViews] = useState<number>(0);
   const [selectedSlot, setSelectedSlot] = useState<string>('');
   const [purchaseSuccessMsg, setPurchaseSuccessMsg] = useState<string | null>(null);
 
@@ -96,12 +100,77 @@ export default function ConsumerDashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ streamId: stream.id })
       });
-      // Refresh local data to show updated viewer count
-      loadAllConsumerData();
     } catch (e) {
       console.warn('[Join stream counter error]:', e);
     }
-    window.open(stream.meet_url, '_blank');
+    router.push(`/consumer/live/${stream.id}`);
+  };
+
+  const handlePlayVideo = async (v: ProviderVideo) => {
+    setActiveVideo(v);
+    setVideoLikes(v.likes_count || 0);
+    setVideoViews((v.views_count || 0) + 1);
+    setVideoComments([]);
+    setNewCommentText('');
+
+    // Update views counter in database
+    try {
+      fetch('/api/videos/view', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoId: v.id })
+      });
+    } catch (e) {
+      console.warn('[View increment error]:', e);
+    }
+
+    // Fetch video comments from database
+    try {
+      const res = await fetch(`/api/videos/comments?videoId=${v.id}`);
+      const cData = await res.json();
+      if (cData.success) {
+        setVideoComments(cData.comments);
+      }
+    } catch (e) {
+      console.warn('[Comments fetch error]:', e);
+    }
+  };
+
+  const handleLikeVideo = async () => {
+    if (!activeVideo) return;
+    setVideoLikes(prev => prev + 1);
+    try {
+      await fetch('/api/videos/like', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoId: activeVideo.id })
+      });
+    } catch (e) {
+      console.warn('[Like increment error]:', e);
+    }
+  };
+
+  const handleAddComment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeVideo || !newCommentText.trim()) return;
+    const activeUser = getSavedConsumerUser();
+    const userName = activeUser?.username || 'Senior Learner';
+    const text = newCommentText;
+    setNewCommentText('');
+
+    try {
+      const res = await fetch('/api/videos/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoId: activeVideo.id, userName, comment: text })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setVideoComments(prev => [...prev, data.comment]);
+      }
+    } catch (e) {
+      console.warn('[Comment add error]:', e);
+    }
   };
 
   useEffect(() => {
@@ -273,15 +342,23 @@ export default function ConsumerDashboardPage() {
               </div>
             </Link>
 
-            <div className="hidden md:flex items-center gap-2 bg-[#F4F3F1] px-4 py-2 rounded-2xl border border-[#E3E2E0] w-96">
-              <Search className="w-4 h-4 text-[#44474E]" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => handleGlobalSearch(e.target.value, activeCategory)}
-                placeholder="Search biryani, pottery, cooking..."
-                className="bg-transparent border-none text-sm font-semibold text-[#031635] focus:outline-none w-full"
-              />
+            <div className="flex items-center gap-2">
+              <div className="hidden md:flex items-center gap-2 bg-[#F4F3F1] px-4 py-2 rounded-2xl border border-[#E3E2E0] w-72">
+                <Search className="w-4 h-4 text-[#44474E]" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => handleGlobalSearch(e.target.value, activeCategory)}
+                  placeholder="Search biryani, pottery, cooking..."
+                  className="bg-transparent border-none text-sm font-semibold text-[#031635] focus:outline-none w-full"
+                />
+              </div>
+              <button
+                onClick={() => router.push('/providers')}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-2xl text-xs font-extrabold shadow-sm transition whitespace-nowrap"
+              >
+                🔍 Search Providers
+              </button>
             </div>
           </div>
 
@@ -339,48 +416,8 @@ export default function ConsumerDashboardPage() {
             <p className="mt-4 text-slate-300 text-sm lg:text-base font-medium">
               Join free live workshops, search provider videos (e.g. Dum Biryani, Terracotta Pottery), or book paid 1-on-1 video consultations.
             </p>
-            <div className="mt-6 flex flex-wrap items-center gap-3">
-              <a
-                href="#free-sessions"
-                className="px-5 py-2.5 bg-[#FDBC13] hover:bg-[#e0a50b] text-[#031635] font-extrabold rounded-2xl text-sm shadow-md transition flex items-center gap-2"
-              >
-                🎁 Join Free Community Sessions
-              </a>
-              <button
-                onClick={() => {
-                  setAiChatInput('biryani');
-                  setIsAiChatOpen(true);
-                }}
-                className="px-5 py-2.5 bg-white/10 hover:bg-white/20 text-white font-bold rounded-2xl text-sm transition flex items-center gap-2"
-              >
-                🍛 Search Biryani Recipe Videos
-              </button>
-            </div>
+            {/* Hero buttons removed */}
           </div>
-        </div>
-
-        {/* Category Navigation Pills */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar">
-          {[
-            { id: 'all', label: '🌟 All Products & Services' },
-            { id: 'cooking', label: '🍲 Cooking, Food & Recipes' },
-            { id: 'pottery', label: '🏺 Pottery & Terracotta' },
-            { id: 'crafts', label: '🎨 Tanjore Art & Crafts' },
-            { id: 'textiles', label: '🧶 Handloom & Textiles' },
-            { id: 'general', label: '📦 General & Special Courses' }
-          ].map(cat => (
-            <button
-              key={cat.id}
-              onClick={() => handleGlobalSearch(searchQuery, cat.id)}
-              className={`px-5 py-2.5 rounded-2xl font-extrabold text-sm whitespace-nowrap transition shadow-sm ${
-                activeCategory === cat.id
-                  ? 'bg-[#031635] text-white'
-                  : 'bg-white text-[#44474E] hover:bg-[#F4F3F1] border border-[#E3E2E0]'
-              }`}
-            >
-              {cat.label}
-            </button>
-          ))}
         </div>
 
         {/* AREA 1: FREE COMMUNITY LIVE SESSIONS (OPEN FOR ALL CONSUMERS) */}
@@ -452,7 +489,7 @@ export default function ConsumerDashboardPage() {
                 <Video className="w-7 h-7 text-purple-600" /> Service Provider Posted Videos & Recipes
               </h2>
               <p className="text-sm font-semibold text-[#44474E]">
-                Watch recorded video tutorials (Dum Biryani recipes, Terracotta pottery turning, Tanjore gold foil art).
+                Watch recorded video tutorials and skill masterclasses.
               </p>
             </div>
           </div>
@@ -468,7 +505,7 @@ export default function ConsumerDashboardPage() {
               {videos.map(video => (
                 <div key={video.id} className="bg-white rounded-3xl border border-[#E3E2E0] overflow-hidden shadow-md hover:shadow-xl transition flex flex-col justify-between group">
                   <div>
-                    <div className="relative h-48 w-full bg-slate-900 overflow-hidden cursor-pointer" onClick={() => setActiveVideo(video)}>
+                    <div className="relative h-48 w-full bg-slate-900 overflow-hidden cursor-pointer" onClick={() => handlePlayVideo(video)}>
                       <img src={video.thumbnail_url} alt={video.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 opacity-90" />
                       <div className="absolute inset-0 bg-black/30 flex items-center justify-center group-hover:bg-black/10 transition">
                         <div className="w-12 h-12 rounded-full bg-white/90 text-[#031635] flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
@@ -509,7 +546,7 @@ export default function ConsumerDashboardPage() {
 
                   <div className="p-5 pt-0">
                     <button
-                      onClick={() => setActiveVideo(video)}
+                      onClick={() => handlePlayVideo(video)}
                       className="w-full py-2.5 bg-[#031635] hover:bg-[#062454] text-white font-extrabold text-xs rounded-2xl shadow-sm transition flex items-center justify-center gap-2"
                     >
                       <Play className="w-4 h-4 fill-white" /> Watch Posted Video Tutorial
@@ -807,35 +844,91 @@ export default function ConsumerDashboardPage() {
       {/* PROVIDER VIDEO PLAYER MODAL */}
       {activeVideo && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-[#E3E2E0] animate-scale-in">
-            <div className="flex items-center justify-between mb-4 pb-3 border-b border-[#E3E2E0]">
-              <h3 className="text-lg font-black text-[#031635] flex items-center gap-2">
-                <Play className="w-5 h-5 text-purple-600" /> Posted Video Tutorial
-              </h3>
-              <button onClick={() => setActiveVideo(null)} className="p-1 rounded-full hover:bg-slate-100">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-[#E3E2E0] animate-scale-in flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-[#E3E2E0] shrink-0">
+              <div>
+                <h3 className="text-lg font-black text-[#031635] flex items-center gap-2">
+                  <Play className="w-5 h-5 text-purple-600 animate-pulse" /> {activeVideo.title}
+                </h3>
+                <p className="text-xs text-[#44474E] font-bold mt-0.5">Instructor: {activeVideo.creator_name}</p>
+              </div>
+              <button onClick={() => setActiveVideo(null)} className="p-1.5 rounded-full hover:bg-slate-100 transition">
                 <X className="w-5 h-5 text-[#44474E]" />
               </button>
             </div>
 
-            <div className="aspect-video w-full bg-slate-900 rounded-2xl overflow-hidden mb-4 relative">
-              <img src={activeVideo.thumbnail_url} alt={activeVideo.title} className="w-full h-full object-cover opacity-80" />
-              <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center text-white p-6 text-center">
-                <div className="w-16 h-16 rounded-full bg-purple-600 text-white flex items-center justify-center mb-3 shadow-xl animate-pulse">
-                  <Play className="w-8 h-8 fill-white ml-1" />
-                </div>
-                <h4 className="font-extrabold text-lg">{activeVideo.title}</h4>
-                <p className="text-xs text-slate-300 mt-1">Instructor: {activeVideo.creator_name}</p>
-              </div>
+            {/* Video container */}
+            <div className="aspect-video w-full bg-black rounded-2xl overflow-hidden mb-4 relative shrink-0 shadow-inner">
+              <video 
+                src={activeVideo.video_url} 
+                controls 
+                autoPlay
+                className="w-full h-full object-contain"
+              />
             </div>
 
-            <div className="flex gap-3">
+            {/* Engagement Metrics & Interaction deck */}
+            <div className="flex items-center justify-between py-3 px-4 bg-[#FAF9F6] rounded-2xl border border-[#E3E2E0] mb-4 shrink-0">
+              <div className="flex items-center gap-4 text-xs font-black text-[#031635]">
+                <span className="flex items-center gap-1.5">
+                  <Eye className="w-4 h-4 text-slate-500" /> {videoViews} views
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <Heart className="w-4 h-4 text-rose-500 fill-rose-500" /> {videoLikes} likes
+                </span>
+              </div>
+              
               <button
-                onClick={() => setActiveVideo(null)}
-                className="w-full py-3 bg-[#031635] text-white font-extrabold text-sm rounded-2xl shadow-md"
+                onClick={handleLikeVideo}
+                className="flex items-center gap-1.5 px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 font-extrabold text-xs rounded-xl border border-rose-200 transition active:scale-95"
               >
-                Close Video Player
+                <Heart className="w-4 h-4 fill-rose-500" /> Like Video
               </button>
             </div>
+
+            {/* Scrollable Comments feed */}
+            <div className="flex-1 overflow-y-auto mb-4 border border-[#E3E2E0] rounded-2xl p-4 bg-[#FAF9F6] min-h-[150px]">
+              <h4 className="font-extrabold text-xs text-[#031635] uppercase tracking-wider mb-3">
+                💬 Comments ({videoComments.length})
+              </h4>
+              
+              {videoComments.length === 0 ? (
+                <div className="text-center py-6 text-xs text-slate-400 font-bold">
+                  No comments posted yet. Be the first to start the conversation!
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {videoComments.map((c) => (
+                    <div key={c.id} className="bg-white p-3 rounded-xl border border-[#E3E2E0] shadow-sm">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-extrabold text-xs text-purple-700">{c.user_name}</span>
+                        <span className="text-[9px] font-bold text-slate-400">
+                          {c.created_at ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
+                        </span>
+                      </div>
+                      <p className="text-xs font-semibold text-[#031635] leading-relaxed">{c.comment}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Comment Form */}
+            <form onSubmit={handleAddComment} className="flex gap-2 mb-2 shrink-0">
+              <input
+                type="text"
+                value={newCommentText}
+                onChange={(e) => setNewCommentText(e.target.value)}
+                placeholder="Type a comment or ask a question..."
+                className="flex-1 px-4 py-3 bg-white border-2 border-[#E3E2E0] focus:border-purple-500 outline-none rounded-2xl text-xs font-semibold transition"
+              />
+              <button
+                type="submit"
+                className="px-5 py-3 bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs rounded-2xl shadow-md transition active:scale-95 flex items-center justify-center gap-1.5"
+              >
+                <Send className="w-3.5 h-3.5" /> Post
+              </button>
+            </form>
           </div>
         </div>
       )}
@@ -1048,7 +1141,7 @@ export default function ConsumerDashboardPage() {
                           </div>
                         </div>
                         <button
-                          onClick={() => setActiveVideo(v)}
+                          onClick={() => handlePlayVideo(v)}
                           className="px-3 py-1.5 bg-purple-600 text-white text-[11px] font-bold rounded-xl shrink-0"
                         >
                           Watch Video

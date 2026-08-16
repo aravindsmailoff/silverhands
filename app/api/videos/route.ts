@@ -23,8 +23,9 @@ export async function GET(req: Request) {
         SELECT 
           v.id, v.creator_id, v.title, v.description, v.video_type, v.status, 
           v.source_type, v.storage_key, v.thumbnail_key, v.duration_seconds, 
-          v.transcript, v.views, v.created_at, v.updated_at, v.published_at,
-          u.user_name as creator_name, u.face_photo_url as creator_avatar
+          v.transcript, v.views, v.likes, v.created_at, v.updated_at, v.published_at,
+          u.user_name as creator_name, u.face_photo_url as creator_avatar,
+          (SELECT COUNT(*)::int FROM video_comments WHERE video_id = v.id) as comments_count
         FROM videos v
         LEFT JOIN user_accounts u ON v.creator_id = u.id
       `;

@@ -78,10 +78,6 @@ export default function DashboardPage() {
       setViewerCount(0);
     } else {
       // Start Live Stream
-      if (!meetUrl.trim()) {
-        alert('Please enter your Google Meet URL to go live!');
-        return;
-      }
       const titleText = liveTitle.trim() || `${creatorName}'s Live Masterclass`;
       const res = await fetch('/api/live-streams', {
         method: 'POST',
@@ -90,7 +86,7 @@ export default function DashboardPage() {
           creatorId,
           creatorName,
           title: titleText,
-          meetUrl: meetUrl.trim()
+          meetUrl: meetUrl.trim() || `https://meet.google.com/silverhands-native`
         })
       });
       const data = await res.json();
@@ -98,6 +94,8 @@ export default function DashboardPage() {
         setIsLive(true);
         setStreamInfo(data.stream);
         setViewerCount(0);
+        // Redirect to native live room
+        router.push(`/dashboard/live/${data.stream.id}`);
       } else {
         alert(data.error || 'Failed to start live stream');
       }

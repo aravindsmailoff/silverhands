@@ -113,6 +113,9 @@ export interface ProviderVideo {
   thumbnail_url: string;
   video_duration: string;
   views_count: number;
+  likes_count: number;
+  comments_count: number;
+  video_url: string;
   posted_at: string;
   tags: string[];
 }
@@ -253,6 +256,9 @@ export async function fetchLiveConsumerVideos(): Promise<ProviderVideo[]> {
         thumbnail_url: v.thumbnail_url || 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?auto=format&fit=crop&w=800&q=80',
         video_duration: formatDuration(v.duration_seconds),
         views_count: v.views || 0,
+        likes_count: v.likes || 0,
+        comments_count: v.comments_count || 0,
+        video_url: v.storage_key || '',
         posted_at: v.created_at ? new Date(v.created_at).toLocaleDateString() : 'Recently posted',
         tags: Array.isArray(v.tags) ? v.tags : [(v.topic || v.title || '').toLowerCase(), 'video', 'tutorial'],
       }));

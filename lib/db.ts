@@ -259,9 +259,18 @@ export async function initDatabaseSchema(): Promise<{ success: boolean; message:
       duration_seconds INTEGER,
       transcript TEXT,
       views INTEGER DEFAULT 0,
+      likes INTEGER DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       published_at TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS video_comments (
+      id VARCHAR(64) PRIMARY KEY,
+      video_id VARCHAR(64) NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+      user_name VARCHAR(255) NOT NULL,
+      comment TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS video_versions (
@@ -280,20 +289,27 @@ export async function initDatabaseSchema(): Promise<{ success: boolean; message:
       creator_id VARCHAR(64) NOT NULL,
       creator_name VARCHAR(255) NOT NULL,
       title VARCHAR(255) NOT NULL,
-      meet_url TEXT NOT NULL,
+      description TEXT,
+      meet_url TEXT,
       status VARCHAR(32) DEFAULT 'live',
       viewer_count INTEGER DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      ended_at TIMESTAMP
     );
   `;
 
   try {
     await pool.query(schemaSql);
-    // Alter existing tables to add is_public column if it doesn't exist
+    // Alter existing tables to add columns if they don't exist
     try {
       await pool.query('ALTER TABLE recorded_videos ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT true;');
+      await pool.query('ALTER TABLE videos ADD COLUMN IF NOT EXISTS likes INTEGER DEFAULT 0;');
+      await pool.query('ALTER TABLE live_streams ADD COLUMN IF NOT EXISTS description TEXT;');
+      await pool.query('ALTER TABLE live_streams ADD COLUMN IF NOT EXISTS started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;');
+      await pool.query('ALTER TABLE live_streams ADD COLUMN IF NOT EXISTS ended_at TIMESTAMP;');
+      await pool.query('ALTER TABLE live_streams ALTER COLUMN meet_url DROP NOT NULL;');
     } catch (alterErr) {
-      console.warn('[DB] ALTER TABLE error (is_public):', alterErr);
+      console.warn('[DB] ALTER TABLE migrations warning:', alterErr);
     }
     console.log('[DB] Railway PostgreSQL normalized schema initialized successfully.');
     return { success: true, message: 'PostgreSQL normalized schema created successfully.' };
