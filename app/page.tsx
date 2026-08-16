@@ -49,6 +49,10 @@ export default function VoiceConversationalApp() {
 
   useEffect(() => {
     isMounted.current = true;
+    
+    // Auto-initialize Railway PostgreSQL database schema
+    fetch('/api/db/init').catch((err) => console.warn('[DB Init Warning]:', err));
+
     const saved = getSavedProfile();
     if (saved && saved.name) {
       setProfileState(saved);
