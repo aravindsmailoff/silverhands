@@ -13,6 +13,77 @@ export interface ServiceProvider {
   available_slots: string[];
 }
 
+export interface SeniorProduct {
+  id: string;
+  title: string;
+  description: string;
+  price: number;
+  category: string;
+  creator_name: string;
+  creator_location: string;
+  creator_avatar: string;
+  image_url: string;
+  rating: number;
+  reviews_count: number;
+  stock: number;
+  is_active: boolean;
+}
+
+export interface LiveSession {
+  id: string;
+  title: string;
+  description: string;
+  price: number;
+  duration_mins: number;
+  category: string;
+  creator_name: string;
+  creator_experience: string;
+  creator_location: string;
+  creator_avatar: string;
+  available_slots: string[];
+  session_type: string;
+  rating: number;
+}
+
+export interface SeniorVideo {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  creator_name: string;
+  creator_experience: string;
+  creator_location: string;
+  creator_avatar: string;
+  thumbnail_url: string;
+  video_duration: string;
+  views_count: number;
+  posted_at: string;
+  tags: string[];
+}
+
+export interface ConsumerUser {
+  id: string;
+  name?: string;
+  username: string;
+  email: string;
+  password?: string;
+  phone?: string;
+  location?: string;
+  interests?: string[];
+  created_at?: string;
+}
+
+export interface ConsumerBooking {
+  id: string;
+  session_id: string;
+  session_title: string;
+  creator_name: string;
+  slot: string;
+  price: number;
+  booked_at: string;
+  status: 'confirmed' | 'completed' | 'cancelled';
+}
+
 export const INITIAL_PROVIDERS: ServiceProvider[] = [
   {
     id: 'provider-01',

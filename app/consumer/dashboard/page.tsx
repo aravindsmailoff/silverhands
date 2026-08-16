@@ -795,7 +795,7 @@ export default function ConsumerDashboardPage() {
                 Select Available Slot:
               </label>
               <div className="space-y-2">
-                {selectedSession.available_slots.map(slot => (
+                {selectedSession.available_slots.map((slot: string) => (
                   <button
                     key={slot}
                     type="button"
