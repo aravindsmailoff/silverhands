@@ -25,6 +25,10 @@ export default function ProfilePage() {
 
   useEffect(() => {
     const loaded = getSavedProfile();
+    if (!loaded || !loaded.name) {
+      router.push('/');
+      return;
+    }
     setProfile(loaded);
     
     // Fetch stored videos directly from PostgreSQL Database API

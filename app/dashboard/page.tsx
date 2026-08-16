@@ -24,8 +24,9 @@ export default function DashboardPage() {
       if (saved.location) setUserLocation(saved.location);
     } else {
       setUserName(null);
+      router.push('/');
     }
-  }, []);
+  }, [router]);
 
   return (
     <div className="bg-[#FAF9F6] text-[#1A1C1A] font-['Lexend',sans-serif] min-h-screen flex flex-col antialiased">

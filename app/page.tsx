@@ -239,6 +239,9 @@ export default function VoiceConversationalApp() {
     setAgentState('COMPLETED');
 
     voiceService.speak(`Congratulations ${userName}! Your profile, Face ID, and password have been registered successfully. Loading your dashboard now.`, 'en-IN');
+    setTimeout(() => {
+      router.push('/dashboard');
+    }, 1500);
   };
 
   return (
