@@ -128,12 +128,119 @@ export async function initDatabaseSchema(): Promise<{ success: boolean; message:
       video_data TEXT,
       recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- ── Normalized Multi-Skill Relational Architecture ──
+
+    CREATE TABLE IF NOT EXISTS creator_profiles (
+      id VARCHAR(64) PRIMARY KEY,
+      user_id VARCHAR(64) NOT NULL,
+      display_name VARCHAR(255) NOT NULL,
+      bio TEXT,
+      experience_summary TEXT,
+      availability VARCHAR(255),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS skills (
+      id VARCHAR(64) PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      normalized_name VARCHAR(255) UNIQUE NOT NULL,
+      category VARCHAR(128),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS creator_skills (
+      id VARCHAR(64) PRIMARY KEY,
+      creator_profile_id VARCHAR(64) NOT NULL,
+      skill_id VARCHAR(64) NOT NULL,
+      skill_type VARCHAR(32) DEFAULT 'primary',
+      experience_years INTEGER,
+      status VARCHAR(32) DEFAULT 'confirmed',
+      source VARCHAR(32) DEFAULT 'voice',
+      confidence NUMERIC DEFAULT 1.0,
+      is_confirmed BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT unq_creator_skill UNIQUE (creator_profile_id, skill_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS locations (
+      id VARCHAR(64) PRIMARY KEY,
+      creator_profile_id VARCHAR(64) NOT NULL,
+      locality VARCHAR(255),
+      city VARCHAR(255),
+      district VARCHAR(255),
+      state VARCHAR(255),
+      country VARCHAR(128) DEFAULT 'India',
+      postal_code VARCHAR(32),
+      is_primary BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS offerings (
+      id VARCHAR(64) PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      category VARCHAR(128),
+      description TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS creator_offerings (
+      id VARCHAR(64) PRIMARY KEY,
+      creator_profile_id VARCHAR(64) NOT NULL,
+      offering_id VARCHAR(64) NOT NULL,
+      is_confirmed BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT unq_creator_offering UNIQUE (creator_profile_id, offering_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS languages (
+      id VARCHAR(64) PRIMARY KEY,
+      name VARCHAR(128) UNIQUE NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS creator_languages (
+      id VARCHAR(64) PRIMARY KEY,
+      creator_profile_id VARCHAR(64) NOT NULL,
+      language_id VARCHAR(64) NOT NULL,
+      proficiency VARCHAR(64) DEFAULT 'native',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT unq_creator_lang UNIQUE (creator_profile_id, language_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS creator_videos (
+      id VARCHAR(64) PRIMARY KEY,
+      creator_profile_id VARCHAR(64) NOT NULL,
+      creator_name VARCHAR(255) NOT NULL,
+      topic VARCHAR(255) NOT NULL,
+      description TEXT,
+      source_url TEXT,
+      video_data TEXT,
+      content_mode VARCHAR(64) DEFAULT 'tutorial',
+      status VARCHAR(32) DEFAULT 'ready',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS profile_change_log (
+      id VARCHAR(64) PRIMARY KEY,
+      creator_profile_id VARCHAR(64) NOT NULL,
+      field_type VARCHAR(64) NOT NULL,
+      field_id VARCHAR(64),
+      old_value TEXT,
+      new_value TEXT,
+      source VARCHAR(64) DEFAULT 'voice',
+      changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
   `;
 
   try {
     await pool.query(schemaSql);
-    console.log('[DB] Railway PostgreSQL schema initialized successfully.');
-    return { success: true, message: 'PostgreSQL schema created successfully.' };
+    console.log('[DB] Railway PostgreSQL normalized schema initialized successfully.');
+    return { success: true, message: 'PostgreSQL normalized schema created successfully.' };
   } catch (err: any) {
     console.error('[DB] Schema initialization error:', err);
     return { success: false, message: err.message || 'Error executing schema SQL.' };
