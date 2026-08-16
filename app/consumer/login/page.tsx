@@ -13,7 +13,7 @@ export default function ConsumerLoginPage() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -24,27 +24,28 @@ export default function ConsumerLoginPage() {
 
     setIsLoading(true);
 
-    setTimeout(() => {
-      const registry = getConsumerRegistry();
-      const user = registry[email.trim().toLowerCase()];
+    try {
+      const res = await fetch('/api/consumer/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim(),
+          password
+        })
+      });
 
-      if (user && user.password === password) {
-        saveConsumerUser(user);
+      const data = await res.json();
+      if (data.success && data.user) {
+        saveConsumerUser(data.user);
         router.push('/consumer/dashboard');
       } else {
-        // Auto-create/demo login for smooth experience
-        const demoUser = {
-          id: 'usr-' + Date.now(),
-          email: email.trim(),
-          username: email.split('@')[0] || 'Learner',
-          password,
-          created_at: new Date().toISOString()
-        };
-        saveConsumerUser(demoUser);
-        router.push('/consumer/dashboard');
+        setError(data.error || 'Invalid email or password.');
       }
+    } catch (err: any) {
+      setError('An error occurred. Please try again.');
+    } finally {
       setIsLoading(false);
-    }, 600);
+    }
   };
 
   return (

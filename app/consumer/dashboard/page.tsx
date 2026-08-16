@@ -65,9 +65,43 @@ export default function ConsumerDashboardPage() {
       setSessions(lists);
       setVideos(vids);
       setProviders(regProviders);
+
+      // Fetch live streams from PostgreSQL
+      const streamRes = await fetch('/api/live-streams');
+      const streamData = await streamRes.json();
+      if (streamData.success && Array.isArray(streamData.streams)) {
+        setFreeSessions(streamData.streams.map((s: any) => ({
+          id: s.id,
+          title: s.title,
+          description: `Interact live with ${s.creator_name} on Google Meet! Click Join to enter the session.`,
+          category: 'cooking',
+          creator_name: s.creator_name,
+          creator_avatar: '👵🏽',
+          creator_location: 'India',
+          start_time: 'LIVE NOW',
+          attendees_count: s.viewer_count,
+          banner_color: 'bg-emerald-500',
+          meet_url: s.meet_url
+        })));
+      }
     } catch (e) {
       console.warn('[ConsumerDashboard] Error loading live provider data:', e);
     }
+  };
+
+  const handleJoinStream = async (stream: any) => {
+    try {
+      await fetch('/api/live-streams/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ streamId: stream.id })
+      });
+      // Refresh local data to show updated viewer count
+      loadAllConsumerData();
+    } catch (e) {
+      console.warn('[Join stream counter error]:', e);
+    }
+    window.open(stream.meet_url, '_blank');
   };
 
   useEffect(() => {
@@ -397,7 +431,7 @@ export default function ConsumerDashboardPage() {
                 </div>
 
                 <button
-                  onClick={() => setActiveFreeSession(fs)}
+                  onClick={() => handleJoinStream(fs)}
                   className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm rounded-2xl shadow-md transition flex items-center justify-center gap-2"
                 >
                   <Play className="w-4 h-4 fill-white" /> Join Free Live Stream Now

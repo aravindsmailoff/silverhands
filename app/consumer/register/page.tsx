@@ -12,21 +12,10 @@ export default function ConsumerRegisterPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [location, setLocation] = useState('Chennai');
-  const [selectedInterests, setSelectedInterests] = useState<string[]>(['Pottery', 'Cooking']);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const availableInterests = ['Pottery', 'Traditional Cooking', 'Tanjore Painting', 'Handloom Textiles', 'Gardening', 'Organic Pickles'];
-
-  const toggleInterest = (interest: string) => {
-    if (selectedInterests.includes(interest)) {
-      setSelectedInterests(selectedInterests.filter(i => i !== interest));
-    } else {
-      setSelectedInterests([...selectedInterests, interest]);
-    }
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -37,21 +26,30 @@ export default function ConsumerRegisterPage() {
 
     setIsLoading(true);
 
-    setTimeout(() => {
-      const newUser = {
-        id: 'usr-' + Date.now(),
-        email: email.trim(),
-        username: username.trim(),
-        password,
-        location,
-        interests: selectedInterests,
-        created_at: new Date().toISOString()
-      };
+    try {
+      const res = await fetch('/api/consumer/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim(),
+          username: username.trim(),
+          password,
+          location
+        })
+      });
 
-      saveConsumerUser(newUser);
+      const data = await res.json();
+      if (data.success && data.user) {
+        saveConsumerUser(data.user);
+        router.push('/consumer/dashboard');
+      } else {
+        setError(data.error || 'Registration failed.');
+      }
+    } catch (err: any) {
+      setError('An error occurred. Please try again.');
+    } finally {
       setIsLoading(false);
-      router.push('/consumer/dashboard');
-    }, 600);
+    }
   };
 
   return (
@@ -157,31 +155,6 @@ export default function ConsumerRegisterPage() {
                   placeholder="e.g. Chennai, Bangalore, Mumbai"
                   className="block w-full pl-11 pr-4 py-3 bg-[#F4F3F1] border border-[#E3E2E0] rounded-2xl text-sm font-semibold text-[#031635] focus:outline-none focus:ring-2 focus:ring-[#031635] focus:bg-white transition"
                 />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-bold text-[#031635] mb-1">
-                Preferred Topics to Learn & Buy
-              </label>
-              <div className="flex flex-wrap gap-1.5 mt-1">
-                {availableInterests.map((interest) => {
-                  const isSelected = selectedInterests.includes(interest);
-                  return (
-                    <button
-                      key={interest}
-                      type="button"
-                      onClick={() => toggleInterest(interest)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-bold transition ${
-                        isSelected
-                          ? 'bg-[#031635] text-white shadow-sm'
-                          : 'bg-[#F4F3F1] text-[#44474E] hover:bg-[#E3E2E0]'
-                      }`}
-                    >
-                      {isSelected ? '✓ ' : '+ '}{interest}
-                    </button>
-                  );
-                })}
               </div>
             </div>
 

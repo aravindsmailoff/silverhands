@@ -231,6 +231,13 @@ export async function fetchLiveConsumerListings(): Promise<LiveSession[]> {
   return [];
 }
 
+function formatDuration(seconds: number | null | undefined): string {
+  if (!seconds) return '10:00';
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+}
+
 export async function fetchLiveConsumerVideos(): Promise<ProviderVideo[]> {
   try {
     const res = await fetch('/api/videos');
@@ -238,16 +245,16 @@ export async function fetchLiveConsumerVideos(): Promise<ProviderVideo[]> {
     if (data.success && Array.isArray(data.videos)) {
       return data.videos.map((v: any) => ({
         id: v.id,
-        title: v.topic || 'Provider Video Lesson',
+        title: v.topic || v.title || 'Video Lesson',
         description: v.description || '',
-        category: 'cooking',
+        category: v.category || 'cooking',
         creator_name: v.creator_name || 'Senior Creator',
-        creator_avatar: '👵🏽',
-        thumbnail_url: 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?auto=format&fit=crop&w=800&q=80',
-        video_duration: '15:00',
-        views_count: 42,
-        posted_at: 'Recently posted',
-        tags: [(v.topic || '').toLowerCase(), 'video', 'tutorial'],
+        creator_avatar: v.creator_avatar || '👵🏽',
+        thumbnail_url: v.thumbnail_url || 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?auto=format&fit=crop&w=800&q=80',
+        video_duration: formatDuration(v.duration_seconds),
+        views_count: v.views || 0,
+        posted_at: v.created_at ? new Date(v.created_at).toLocaleDateString() : 'Recently posted',
+        tags: Array.isArray(v.tags) ? v.tags : [(v.topic || v.title || '').toLowerCase(), 'video', 'tutorial'],
       }));
     }
   } catch (e) {

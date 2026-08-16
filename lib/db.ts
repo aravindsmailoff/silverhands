@@ -236,6 +236,55 @@ export async function initDatabaseSchema(): Promise<{ success: boolean; message:
       source VARCHAR(64) DEFAULT 'voice',
       changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS consumers (
+      id VARCHAR(64) PRIMARY KEY,
+      username VARCHAR(255) NOT NULL,
+      email VARCHAR(255) UNIQUE NOT NULL,
+      password_hash VARCHAR(255) NOT NULL,
+      location VARCHAR(255),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS videos (
+      id VARCHAR(64) PRIMARY KEY,
+      creator_id VARCHAR(64) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      description TEXT,
+      video_type VARCHAR(64),
+      status VARCHAR(32) DEFAULT 'UPLOADED',
+      source_type VARCHAR(32) DEFAULT 'RECORDED',
+      storage_key TEXT,
+      thumbnail_key TEXT,
+      duration_seconds INTEGER,
+      transcript TEXT,
+      views INTEGER DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      published_at TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS video_versions (
+      id VARCHAR(64) PRIMARY KEY,
+      video_id VARCHAR(64) NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+      version_number INTEGER NOT NULL,
+      storage_key TEXT NOT NULL,
+      video_type VARCHAR(64) DEFAULT 'short',
+      duration_seconds INTEGER,
+      processing_status VARCHAR(32) DEFAULT 'READY',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS live_streams (
+      id VARCHAR(64) PRIMARY KEY,
+      creator_id VARCHAR(64) NOT NULL,
+      creator_name VARCHAR(255) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      meet_url TEXT NOT NULL,
+      status VARCHAR(32) DEFAULT 'live',
+      viewer_count INTEGER DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
   `;
 
   try {

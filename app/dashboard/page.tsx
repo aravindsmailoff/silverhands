@@ -11,15 +11,98 @@ export default function DashboardPage() {
   const [userName, setUserName] = useState<string | null>(null);
   const [userSkill, setUserSkill] = useState('');
 
+  // Live Streaming States
+  const [isLive, setIsLive] = useState(false);
+  const [meetUrl, setMeetUrl] = useState('');
+  const [liveTitle, setLiveTitle] = useState('');
+  const [streamInfo, setStreamInfo] = useState<any>(null);
+  const [viewerCount, setViewerCount] = useState(0);
+
   useEffect(() => {
     const saved = getSavedProfile();
     if (saved && saved.name) {
       setUserName(saved.name);
       if (saved.skill) setUserSkill(saved.skill);
+
+      const creatorId = saved.name.trim().toLowerCase().replace(/\s+/g, '_');
+      // Check if there is an active live stream
+      fetch('/api/live-streams')
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && Array.isArray(data.streams)) {
+            const active = data.streams.find((s: any) => s.creator_id === creatorId);
+            if (active) {
+              setIsLive(true);
+              setMeetUrl(active.meet_url);
+              setLiveTitle(active.title);
+              setStreamInfo(active);
+              setViewerCount(active.viewer_count);
+            }
+          }
+        })
+        .catch(err => console.warn('[Live Stream check error]:', err));
     } else {
       router.push('/');
     }
   }, [router]);
+
+  // Poll viewer count if live
+  useEffect(() => {
+    if (!isLive || !streamInfo) return;
+    const interval = setInterval(() => {
+      fetch('/api/live-streams')
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && Array.isArray(data.streams)) {
+            const active = data.streams.find((s: any) => s.id === streamInfo.id);
+            if (active) {
+              setViewerCount(active.viewer_count);
+            }
+          }
+        })
+        .catch(err => console.warn('[Viewer count poll error]:', err));
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [isLive, streamInfo]);
+
+  const handleToggleLive = async () => {
+    const savedProfile = getSavedProfile();
+    const creatorId = savedProfile?.name?.trim().toLowerCase().replace(/\s+/g, '_') || 'creator';
+    const creatorName = savedProfile?.name || 'Senior Creator';
+
+    if (isLive) {
+      // End Live Stream
+      await fetch(`/api/live-streams?creatorId=${creatorId}`, { method: 'DELETE' });
+      setIsLive(false);
+      setStreamInfo(null);
+      setViewerCount(0);
+    } else {
+      // Start Live Stream
+      if (!meetUrl.trim()) {
+        alert('Please enter your Google Meet URL to go live!');
+        return;
+      }
+      const titleText = liveTitle.trim() || `${creatorName}'s Live Masterclass`;
+      const res = await fetch('/api/live-streams', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          creatorId,
+          creatorName,
+          title: titleText,
+          meetUrl: meetUrl.trim()
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setIsLive(true);
+        setStreamInfo(data.stream);
+        setViewerCount(0);
+      } else {
+        alert(data.error || 'Failed to start live stream');
+      }
+    }
+  };
 
   const handleLogout = () => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -142,6 +225,84 @@ export default function DashboardPage() {
               Guardian Protection is Active
             </span>
           </div>
+        </div>
+
+        {/* Live Meeting Studio Controls */}
+        <div className="bg-white border border-[#E3E2E0] rounded-3xl p-6 md:p-8 shadow-sm space-y-4">
+          <div className="flex items-center justify-between border-b border-[#E3E2E0] pb-4">
+            <div className="flex items-center gap-3">
+              <span className="text-3xl">🎥</span>
+              <div>
+                <h3 className="text-xl font-black text-[#031635]">Live Meeting Studio</h3>
+                <p className="text-xs font-semibold text-[#75777F]">Start an instant masterclass and interact with learners</p>
+              </div>
+            </div>
+            {isLive && (
+              <span className="flex items-center gap-1.5 px-3 py-1 bg-red-100 text-red-600 rounded-full text-xs font-black uppercase tracking-wider animate-pulse">
+                <span className="w-2 h-2 bg-red-600 rounded-full" /> LIVE
+              </span>
+            )}
+          </div>
+
+          {!isLive ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-[#031635] mb-1.5">Masterclass Title</label>
+                  <input
+                    type="text"
+                    value={liveTitle}
+                    onChange={(e) => setLiveTitle(e.target.value)}
+                    placeholder="e.g. Traditional clay pottery workshop"
+                    className="w-full px-4 py-3 bg-[#F4F3F1] border border-[#E3E2E0] rounded-2xl text-sm font-semibold text-[#031635] focus:outline-none focus:ring-2 focus:ring-[#031635]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-[#031635] mb-1.5">Google Meet Meeting Link</label>
+                  <input
+                    type="text"
+                    value={meetUrl}
+                    onChange={(e) => setMeetUrl(e.target.value)}
+                    placeholder="https://meet.google.com/abc-defg-hij"
+                    className="w-full px-4 py-3 bg-[#F4F3F1] border border-[#E3E2E0] rounded-2xl text-sm font-semibold text-[#031635] focus:outline-none focus:ring-2 focus:ring-[#031635]"
+                  />
+                </div>
+              </div>
+              <button
+                onClick={handleToggleLive}
+                className="w-full py-4 bg-red-600 hover:bg-red-700 text-white font-extrabold text-lg rounded-2xl shadow-md transition"
+              >
+                Go Live Now (Notify Consumers)
+              </button>
+            </div>
+          ) : (
+            <div className="bg-red-50/50 border border-red-200 rounded-2xl p-5 space-y-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h4 className="font-extrabold text-red-900">{liveTitle || "Live Masterclass Session"}</h4>
+                  <p className="text-sm font-semibold text-red-700 mt-1">Learners can see and join from their marketplace portal</p>
+                  <a
+                    href={meetUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs font-bold text-red-950 underline mt-2 block"
+                  >
+                    Open Google Meet Link: {meetUrl}
+                  </a>
+                </div>
+                <div className="bg-red-600 text-white px-4 py-3 rounded-2xl text-center md:text-right shrink-0">
+                  <div className="text-2xl font-black">{viewerCount}</div>
+                  <div className="text-xs font-bold uppercase tracking-wider">Active Viewers</div>
+                </div>
+              </div>
+              <button
+                onClick={handleToggleLive}
+                className="w-full py-4 bg-[#031635] hover:bg-[#072147] text-white font-extrabold text-lg rounded-2xl transition"
+              >
+                Stop Live Stream & End Meeting
+              </button>
+            </div>
+          )}
         </div>
 
         {/* 4 big action buttons */}
