@@ -63,6 +63,7 @@ export default function CreateVideoPage() {
 
   // ── Vediomodel pipeline ───────────────────────────────────────────────────
   const [sessionId, setSessionId]     = useState<string | null>(null);
+  const [dbVideoId, setDbVideoId]     = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [subject, setSubject]         = useState('');
   const [selectedMode, setSelectedMode] = useState('highlight');
@@ -340,6 +341,32 @@ export default function CreateVideoPage() {
 
       const data = await r.json();
       setSessionId(data.session_id);
+
+      // Pre-save original video record to database
+      const finalVidId = `vid-${Date.now()}`;
+      setDbVideoId(finalVidId);
+      const profile = getSavedProfile();
+      try {
+        await fetch('/api/videos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            videoId: finalVidId,
+            creatorId: profile?.name ? profile.name.trim().toLowerCase().replace(/\s+/g, '_') : 'creator',
+            creatorName: profile?.name || 'Senior Creator',
+            title: data.subject || 'SilverHands Lesson',
+            description: 'Original raw source video before AI reframing (Private).',
+            sourceType: uploadFile ? 'UPLOADED' : 'RECORDED',
+            storageKey: `/videos/sessions/${data.session_id}/source.mp4`,
+            thumbnailKey: null,
+            durationSeconds: Math.round(data.duration || 60),
+            videoType: 'full'
+          })
+        });
+      } catch (dbSaveErr) {
+        console.warn('[DB] Pre-saving video master record failed:', dbSaveErr);
+      }
+
       // vediomodel returns suggestions as objects {id,title,...} or strings — normalise both
       const rawSuggestions: any[] = data.suggestions || [];
       const normSuggestions: string[] = rawSuggestions.map((s: any) =>
@@ -395,6 +422,27 @@ export default function CreateVideoPage() {
         if (data.status === 'completed' && data.result?.clips) {
           setClips(data.result.clips);
           setStage('preview');
+
+          // Save each generated clip version to pg
+          if (dbVideoId) {
+            data.result.clips.forEach(async (clip: any, idx: number) => {
+              try {
+                await fetch('/api/videos', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    videoId: dbVideoId,
+                    versionNumber: idx + 2, // version 1 is original source
+                    storageKey: clip.video_url || '',
+                    videoType: 'short',
+                    durationSeconds: Math.round(clip.duration || 15)
+                  })
+                });
+              } catch (saveVerErr) {
+                console.warn('[DB] Saving generated clip version failed:', saveVerErr);
+              }
+            });
+          }
           return;
         }
         if (data.status === 'failed') {
@@ -405,7 +453,7 @@ export default function CreateVideoPage() {
       pollRef.current = setTimeout(poll, 2000);
     };
     poll();
-  }, []);
+  }, [dbVideoId]);
 
   useEffect(() => () => clearTimeout(pollRef.current), []);
 
@@ -489,31 +537,28 @@ export default function CreateVideoPage() {
     setIsSaving(true);
     try {
       const profile = getSavedProfile();
-      
-      // 1. Save the public short (Posted / Public)
-      await fetch('/api/videos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          topic: clip.title || subject || 'SilverHands Video',
-          description: clip.hook_text || clip.title || '',
-          videoUrl: clip.video_url || '',
-          creatorName: profile?.name,
-          isPublic: true,
-        }),
-      });
 
-      // 2. Save the private full video (Saved / Private)
-      if (sessionId) {
+      if (dbVideoId) {
+        // Publish the selected reframed clip version (activeClip + 2)
+        const versionNumber = activeClip + 2;
         await fetch('/api/videos', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            topic: `[Full Video] ${subject || 'Skill Lesson'}`,
-            description: 'Raw recorded video before AI reframing (Private).',
-            videoUrl: `/videos/sessions/${sessionId}/source.mp4`,
+            publishVersionId: `ver-${dbVideoId}-${versionNumber}`
+          })
+        });
+      } else {
+        // Simple fallback saving
+        await fetch('/api/videos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            topic: clip.title || subject || 'SilverHands Video',
+            description: clip.hook_text || clip.title || '',
+            videoUrl: clip.video_url || '',
             creatorName: profile?.name,
-            isPublic: false,
+            isPublic: true,
           }),
         });
       }
