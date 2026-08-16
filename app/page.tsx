@@ -12,7 +12,7 @@ import {
 } from '@/lib/voice-agent';
 import { 
   CheckCircle2, RefreshCw, Volume2, Sparkles, ShieldCheck, UserCheck, 
-  Mic, ArrowRight, LogOut, LogIn, UserPlus, Camera, Lock, ScanFace, AlertCircle 
+  Mic, ArrowRight, LogOut, LogIn, UserPlus, Camera, Lock, ScanFace, AlertCircle, Check 
 } from 'lucide-react';
 
 import SignInModal from '@/components/SignInModal';
@@ -32,13 +32,15 @@ export default function VoiceConversationalApp() {
   const [isSignInModalOpen, setIsSignInModalOpen] = useState<boolean>(false);
   const [confirmationMode, setConfirmationMode] = useState<boolean>(false);
 
-  // Security Registration States (Step 2 of Voice Profile Creation)
+  // Security Registration States (Voice-Oriented)
   const [capturedFacePhoto, setCapturedFacePhoto] = useState<string | null>(null);
   const [voicePinInput, setVoicePinInput] = useState<string>('');
   const [passwordInput, setPasswordInput] = useState<string>('');
   const [confirmPasswordInput, setConfirmPasswordInput] = useState<string>('');
   const [securityErrorMsg, setSecurityErrorMsg] = useState<string | null>(null);
   const [isFaceCaptured, setIsFaceCaptured] = useState<boolean>(false);
+  const [isListeningPin, setIsListeningPin] = useState<boolean>(false);
+  const [isListeningPassword, setIsListeningPassword] = useState<boolean>(false);
 
   const isMounted = useRef(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -97,9 +99,54 @@ export default function VoiceConversationalApp() {
         setCapturedFacePhoto(dataUrl);
         setIsFaceCaptured(true);
         stopCamera();
-        voiceService.speak("Face ID photo captured successfully!", 'en-IN');
+        voiceService.speak("Face ID captured! Now let's set your voice PIN and password.", 'en-IN', () => {
+          startListeningForVoicePin();
+        });
       }
     }
+  };
+
+  // Voice-Oriented Voice PIN Listening
+  const startListeningForVoicePin = () => {
+    setIsListeningPin(true);
+    voiceService.speak("Speak a 4-digit Voice PIN into the microphone.", 'en-IN');
+
+    voiceService.startListening({
+      onResult: (res) => {
+        if (res.transcript) {
+          const match = res.transcript.match(/\d+/g);
+          const digits = match ? match.join('') : res.transcript.replace(/\D/g, '');
+          const pin = digits.slice(0, 4) || '4242';
+          setVoicePinInput(pin);
+          setIsListeningPin(false);
+          voiceService.speak(`Voice PIN recorded as ${pin}. Now speak your account password.`, 'en-IN', () => {
+            startListeningForPassword();
+          });
+        }
+      },
+      onError: () => setIsListeningPin(false),
+      onEnd: () => setIsListeningPin(false)
+    });
+  };
+
+  // Voice-Oriented Password Listening
+  const startListeningForPassword = () => {
+    setIsListeningPassword(true);
+    voiceService.speak("Now speak your account password into the microphone.", 'en-IN');
+
+    voiceService.startListening({
+      onResult: (res) => {
+        if (res.transcript) {
+          const spokenPass = res.transcript.trim();
+          setPasswordInput(spokenPass);
+          setConfirmPasswordInput(spokenPass);
+          setIsListeningPassword(false);
+          voiceService.speak(`Password recorded as ${spokenPass}. All security credentials captured!`, 'en-IN');
+        }
+      },
+      onError: () => setIsListeningPassword(false),
+      onEnd: () => setIsListeningPassword(false)
+    });
   };
 
   // Logout action - completely resets browser storage to blank
@@ -184,10 +231,10 @@ export default function VoiceConversationalApp() {
       setConfirmationMode(turnResponse.confirmation_mode);
 
       if (turnResponse.completed) {
-        // Transition to Biometric Security & Password Registration Step
+        // Transition to Voice-Oriented Security & Password Registration Step
         setAgentState('SECURITY_REGISTRATION');
         startSecurityCamera();
-        voiceService.speak(`Profile details recorded for ${turnResponse.updated_profile.name || 'you'}. Now let's register your Face ID and Password.`, 'en-IN');
+        voiceService.speak(`Profile details recorded for ${turnResponse.updated_profile.name || 'you'}. Now let's capture your Face ID and speak your password.`, 'en-IN');
       } else {
         triggerAiSpeaking(turnResponse.next_question);
       }
@@ -198,23 +245,20 @@ export default function VoiceConversationalApp() {
   };
 
   // Finalize Security Registration (Face ID + Voice PIN + Password)
-  const handleFinalizeSecurityRegistration = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleFinalizeSecurityRegistration = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setSecurityErrorMsg(null);
 
     const userName = profileState.name?.trim() || 'Senior Creator';
 
-    if (passwordInput.length < 4) {
-      setSecurityErrorMsg("Password must be at least 4 characters long.");
-      return;
-    }
-    if (passwordInput !== confirmPasswordInput) {
-      setSecurityErrorMsg("Passwords do not match. Please try again.");
+    if (!passwordInput || passwordInput.length < 4) {
+      setSecurityErrorMsg("Please speak or enter a password of at least 4 characters.");
+      voiceService.speak("Please speak or enter a password of at least 4 characters.", 'en-IN');
       return;
     }
 
     if (isPasswordUsedByOtherUser(userName, passwordInput)) {
-      const msg = "This password is used by another account. Please choose a unique password.";
+      const msg = "This password is used by another account. Please speak or enter a unique password.";
       setSecurityErrorMsg(msg);
       voiceService.speak(msg, 'en-IN');
       return;
@@ -238,7 +282,7 @@ export default function VoiceConversationalApp() {
     setIsLoggedIn(true);
     setAgentState('COMPLETED');
 
-    voiceService.speak(`Congratulations ${userName}! Your profile, Face ID, and password have been registered successfully. Loading your dashboard now.`, 'en-IN');
+    voiceService.speak(`Congratulations ${userName}! Your profile, Face ID, and voice password have been registered successfully. Loading your dashboard now.`, 'en-IN');
     setTimeout(() => {
       router.push('/dashboard');
     }, 1500);
@@ -383,15 +427,15 @@ export default function VoiceConversationalApp() {
               </div>
             </div>
           ) : agentState === 'SECURITY_REGISTRATION' ? (
-            /* STEP 2 OF PROFILE CREATION: FACE ID & PASSWORD REGISTRATION */
+            /* STEP 2 OF PROFILE CREATION: 100% VOICE-ORIENTED SECURITY SETUP */
             <form onSubmit={handleFinalizeSecurityRegistration} className="w-full space-y-6 text-center">
               <div className="space-y-2">
                 <div className="w-16 h-16 bg-[#031635] text-[#FDBC13] rounded-full flex items-center justify-center mx-auto shadow-md">
                   <ScanFace className="w-8 h-8" />
                 </div>
-                <h2 className="text-3xl font-black text-[#031635]">Register Face ID & Password</h2>
+                <h2 className="text-3xl font-black text-[#031635]">Voice Security Setup</h2>
                 <p className="text-sm text-[#44474E]">
-                  Complete security registration for <strong className="text-[#031635]">{profileState.name || 'New Creator'}</strong>.
+                  Register Face ID & spoken security credentials for <strong className="text-[#031635]">{profileState.name || 'New Creator'}</strong>.
                 </p>
               </div>
 
@@ -428,40 +472,55 @@ export default function VoiceConversationalApp() {
                 </div>
               )}
 
-              {/* Password & Voice PIN Inputs */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left pt-2">
-                <div>
-                  <label className="text-xs font-extrabold text-[#031635] block mb-1">4-Digit Voice PIN (Optional)</label>
+              {/* 100% Voice-Oriented PIN & Password Spoken Setup */}
+              <div className="space-y-4 text-left pt-2">
+                {/* Voice PIN Button & Input */}
+                <div className="p-4 bg-[#F4F3F1] border-2 border-[#E3E2E0] rounded-2xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-extrabold text-[#031635]">4-Digit Voice PIN (Spoken)</label>
+                    <button
+                      type="button"
+                      onClick={startListeningForVoicePin}
+                      className={`px-3 py-1.5 text-xs font-extrabold rounded-xl transition flex items-center gap-1.5 shadow-sm ${
+                        isListeningPin ? 'bg-rose-600 text-white animate-pulse' : 'bg-[#FDBC13] text-[#261900] hover:bg-[#F3B20B]'
+                      }`}
+                    >
+                      <Mic className="w-3.5 h-3.5" /> {isListeningPin ? 'Listening for PIN...' : '🎙️ Speak Voice PIN'}
+                    </button>
+                  </div>
                   <input
                     type="text"
                     maxLength={4}
                     value={voicePinInput}
                     onChange={(e) => setVoicePinInput(e.target.value)}
-                    placeholder="e.g. 4242"
-                    className="w-full px-4 py-3 border-2 border-[#E3E2E0] rounded-xl text-base font-bold text-[#031635] outline-none"
+                    placeholder="Spoken PIN will appear here (e.g. 4242)"
+                    className="w-full px-4 py-2.5 bg-white border border-[#E3E2E0] rounded-xl text-base font-extrabold text-[#031635] outline-none"
                   />
                 </div>
 
-                <div>
-                  <label className="text-xs font-extrabold text-[#031635] block mb-1">Account Password</label>
+                {/* Spoken Password Button & Input */}
+                <div className="p-4 bg-[#F4F3F1] border-2 border-[#E3E2E0] rounded-2xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-extrabold text-[#031635]">Account Password (Spoken)</label>
+                    <button
+                      type="button"
+                      onClick={startListeningForPassword}
+                      className={`px-3 py-1.5 text-xs font-extrabold rounded-xl transition flex items-center gap-1.5 shadow-sm ${
+                        isListeningPassword ? 'bg-rose-600 text-white animate-pulse' : 'bg-[#031635] text-white hover:bg-[#1a2b4b]'
+                      }`}
+                    >
+                      <Mic className="w-3.5 h-3.5 text-[#FDBC13]" /> {isListeningPassword ? 'Listening for Password...' : '🎙️ Speak Password Aloud'}
+                    </button>
+                  </div>
                   <input
-                    type="password"
+                    type="text"
                     value={passwordInput}
-                    onChange={(e) => setPasswordInput(e.target.value)}
-                    placeholder="Enter password"
-                    className="w-full px-4 py-3 border-2 border-[#E3E2E0] focus:border-[#031635] rounded-xl text-base font-bold text-[#031635] outline-none"
-                    required
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="text-xs font-extrabold text-[#031635] block mb-1">Confirm Password</label>
-                  <input
-                    type="password"
-                    value={confirmPasswordInput}
-                    onChange={(e) => setConfirmPasswordInput(e.target.value)}
-                    placeholder="Re-enter password"
-                    className="w-full px-4 py-3 border-2 border-[#E3E2E0] focus:border-[#031635] rounded-xl text-base font-bold text-[#031635] outline-none"
+                    onChange={(e) => {
+                      setPasswordInput(e.target.value);
+                      setConfirmPasswordInput(e.target.value);
+                    }}
+                    placeholder="Spoken password will appear here"
+                    className="w-full px-4 py-2.5 bg-white border border-[#E3E2E0] rounded-xl text-base font-extrabold text-[#031635] outline-none"
                     required
                   />
                 </div>
@@ -486,7 +545,7 @@ export default function VoiceConversationalApp() {
                   Profile & Biometrics Registered!
                 </h2>
                 <p className="text-base text-[#44474E]">
-                  Welcome aboard, <span className="font-bold text-[#031635]">{profileState.name || 'Senior Creator'}</span>! Your Face ID and password are saved.
+                  Welcome aboard, <span className="font-bold text-[#031635]">{profileState.name || 'Senior Creator'}</span>! Your Face ID and voice password are saved.
                 </p>
               </div>
 
