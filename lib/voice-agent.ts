@@ -25,12 +25,12 @@ export interface AgentTurnResponse {
 
 export const INITIAL_PROFILE_STATE: ProfileState = {
   name: null,
-  skill: 'Traditional Cooking & Crafts',
-  experience_years: 30,
-  location: 'Mylapore, Chennai',
-  language: 'Tamil & English',
-  services: ['Online Lessons', 'Handmade Products'],
-  availability: 'Available Daily'
+  skill: null,
+  experience_years: null,
+  location: null,
+  language: null,
+  services: [],
+  availability: null
 };
 
 const STORAGE_KEY = 'silverhands_user_profile';
@@ -57,7 +57,7 @@ const ACTIVE_USER_KEY = 'silverhands_active_user_name';
 const REGISTRY_KEY = 'silverhands_accounts_registry';
 
 export function normalizeUserName(name: string | null | undefined): string {
-  if (!name) return 'default_senior';
+  if (!name) return 'anonymous_user';
   return name.trim().toLowerCase().replace(/\s+/g, '_');
 }
 
@@ -157,7 +157,7 @@ export function findAccountByPassword(passwordInput: string): UserAccountEntry |
     const account = registry[key];
     if (account && account.security && account.security.password) {
       const pass = account.security.password.trim().toLowerCase();
-      if (pass === cleanInput || pass === cleanInput) {
+      if (pass === cleanInput) {
         return account;
       }
     }
@@ -213,7 +213,8 @@ export function getAllRegisteredFaceAccounts(): UserAccountEntry[] {
 }
 
 export function getSavedProfile(targetUserName?: string): ProfileState {
-  const name = targetUserName || getActiveUserAccount() || 'Senior Creator';
+  const name = targetUserName || getActiveUserAccount();
+  if (!name) return { ...INITIAL_PROFILE_STATE };
   const key = normalizeUserName(name);
   const registry = getAccountsRegistry();
   
@@ -221,12 +222,12 @@ export function getSavedProfile(targetUserName?: string): ProfileState {
     const p = registry[key].profile;
     return {
       name: p.name || name,
-      skill: p.skill || 'Traditional Cooking & Crafts',
-      experience_years: p.experience_years || 30,
-      location: p.location || 'Mylapore, Chennai',
-      language: p.language || 'Tamil & English',
-      services: p.services && p.services.length > 0 ? p.services : ['Online Lessons', 'Handmade Products'],
-      availability: p.availability || 'Available Daily'
+      skill: p.skill || null,
+      experience_years: p.experience_years || null,
+      location: p.location || null,
+      language: p.language || null,
+      services: p.services || [],
+      availability: p.availability || null
     };
   }
   
@@ -243,7 +244,10 @@ export function registerCompleteUserAccount(params: {
   password?: string | null;
   photoUrl?: string | null;
 }): UserAccountEntry {
-  const name = params.userName.trim() || 'Senior Creator';
+  const name = params.userName.trim();
+  if (!name) {
+    throw new Error("User name is required to create an account.");
+  }
   const key = normalizeUserName(name);
   const registry = getAccountsRegistry();
 
@@ -338,6 +342,7 @@ export function saveSecurityCredentials(creds: SecurityCredentials, targetUserNa
 }
 
 export function registerFaceData(name: string, photoUrl: string): RegisteredFaceData {
+  if (!name) throw new Error('User name is required for face registration');
   const entry = registerCompleteUserAccount({
     userName: name,
     profile: getSavedProfile(name),
@@ -383,6 +388,7 @@ export class VoiceAgentEngine {
     return this.currentProfile;
   }
 
+  public getConversationHistory(): ConversationTurn[];
   public getConversationHistory(): ConversationTurn[] {
     return this.conversationHistory;
   }
@@ -392,7 +398,7 @@ export class VoiceAgentEngine {
   }
 
   public resetState(): void {
-    this.currentProfile = getSavedProfile();
+    this.currentProfile = { ...INITIAL_PROFILE_STATE };
     this.conversationHistory = [];
     this.isProcessing = false;
   }
@@ -421,38 +427,18 @@ export class VoiceAgentEngine {
       });
 
       const data = await res.json();
+      this.isProcessing = false;
 
       if (data.success && data.turn) {
         const turn: AgentTurnResponse = data.turn;
         this.currentProfile = turn.updated_profile;
-        if (turn.updated_profile.name) {
-          saveProfileState(turn.updated_profile, turn.updated_profile.name);
-        }
-        this.conversationHistory.push({ role: 'assistant', text: turn.next_question });
         return turn;
       } else {
-        const fallbackQuestion = "Thank you. Could you tell me more about your skills and experience?";
-        this.conversationHistory.push({ role: 'assistant', text: fallbackQuestion });
-        return {
-          extracted_data: {},
-          next_question: fallbackQuestion,
-          updated_profile: this.currentProfile,
-          completed: false,
-          confirmation_mode: false
-        };
+        throw new Error(data.error || 'Failed to process speech turn via AI engine');
       }
     } catch (err) {
-      console.error('Error processing speech with voice agent API:', err);
-      const fallbackQuestion = "I am listening. Please tell me your name or skill.";
-      return {
-        extracted_data: {},
-        next_question: fallbackQuestion,
-        updated_profile: this.currentProfile,
-        completed: false,
-        confirmation_mode: false
-      };
-    } finally {
       this.isProcessing = false;
+      throw err;
     }
   }
 }

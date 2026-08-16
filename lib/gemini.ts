@@ -139,7 +139,7 @@ Extract the listing details and return strictly valid JSON matching this exact s
 /**
  * Auto-generates a rich, detailed video lesson description directly from what the user said in the video via Ollama.
  */
-export async function generateVideoDescriptionFromSpeech(spokenText: string, creatorName: string = 'Senior Creator'): Promise<{ title: string; description: string }> {
+export async function generateVideoDescriptionFromSpeech(spokenText: string, creatorName: string = 'Creator'): Promise<{ title: string; description: string }> {
   // Clean speech noise & filler prefixes
   let cleanedText = spokenText
     .replace(/^let'?s\s+talk\s+about\s+/i, '')
@@ -149,7 +149,7 @@ export async function generateVideoDescriptionFromSpeech(spokenText: string, cre
     .trim();
 
   if (!cleanedText) {
-    cleanedText = spokenText.trim() || 'Senior Creator Video Lesson';
+    cleanedText = spokenText.trim() || 'Creator Video Lesson';
   }
 
   const formattedText = cleanedText.charAt(0).toUpperCase() + cleanedText.slice(1);

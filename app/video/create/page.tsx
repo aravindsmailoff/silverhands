@@ -283,7 +283,7 @@ export default function CreateVideoPage() {
     const fallback = src || 'Senior creator video lesson';
 
     // Immediately show a default so the field is never blank
-    const creatorName = getSavedProfile()?.name || 'Senior Creator';
+    const creatorName = getSavedProfile()?.name || 'Creator';
     setDescription(`In this video, ${creatorName} shares their expertise: "${fallback}".`);
 
     if (!src) return;   // nothing to send to AI; default is already set
@@ -535,7 +535,7 @@ export default function CreateVideoPage() {
               ) : (
                 <>
                   <textarea
-                    value={description || transcript || `In this video, ${getSavedProfile()?.name || 'Senior Creator'} shares their expertise.`}
+                    value={description || transcript || `In this video, ${getSavedProfile()?.name || 'Creator'} shares their expertise.`}
                     onChange={e => setDescription(e.target.value)}
                     rows={4}
                     className="w-full p-4 bg-[#FAF9F6] border-2 border-[#E3E2E0] rounded-xl text-base font-semibold outline-none focus:border-[#031635] resize-none"

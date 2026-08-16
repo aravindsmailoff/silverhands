@@ -107,12 +107,12 @@ export default function ProfilePage() {
     alert("Old video cache cleared! Now record a new video in Video Studio to generate your dynamic AI description.");
   };
 
-  const displayName = profile.name || 'Senior Creator';
-  const displaySkill = profile.skill || 'Traditional Crafts & Cooking';
-  const displayExperience = `${profile.experience_years || 30}+ Years Experience`;
-  const displayLocation = profile.location || 'Mylapore, Chennai';
-  const displayLanguage = profile.language || 'Tamil & English';
-  const displayServices = profile.services.length > 0 ? profile.services : ['Online Lessons', 'Handmade Products'];
+  const displayName = profile.name || 'Creator Profile';
+  const displaySkill = profile.skill || 'Skilled Artisan';
+  const displayExperience = profile.experience_years ? `${profile.experience_years}+ Years Experience` : 'Experienced Creator';
+  const displayLocation = profile.location || 'India';
+  const displayLanguage = profile.language || 'English';
+  const displayServices = profile.services.length > 0 ? profile.services : ['Online Lessons'];
 
   return (
     <div className="bg-[#FAF9F6] text-[#1A1C1A] font-['Lexend',sans-serif] min-h-screen flex flex-col antialiased">

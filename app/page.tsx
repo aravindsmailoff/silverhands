@@ -54,9 +54,15 @@ export default function VoiceConversationalApp() {
     fetch('/api/db/init').catch((err) => console.warn('[DB Init Warning]:', err));
 
     const saved = getSavedProfile();
-    if (saved && saved.name) {
+    if (saved && saved.name && saved.name !== 'Senior Creator') {
       setProfileState(saved);
       setIsLoggedIn(true);
+    } else {
+      if (saved && saved.name === 'Senior Creator') {
+        resetAllAccountsToBlank();
+      }
+      setIsLoggedIn(false);
+      setProfileState({ ...INITIAL_PROFILE_STATE });
     }
     return () => {
       isMounted.current = false;
@@ -376,7 +382,7 @@ export default function VoiceConversationalApp() {
             {isLoggedIn ? (
               <div className="flex items-center gap-3">
                 <span className="hidden sm:inline-block text-sm font-extrabold text-[#031635] bg-[#D8E2FF] px-4 py-2 rounded-full border border-[#031635]/20">
-                  👤 Signed in as {profileState.name || 'Senior Creator'}
+                  👤 Signed in as {profileState.name || 'Member'}
                 </span>
                 <button
                   onClick={handleLogout}
@@ -570,7 +576,7 @@ export default function VoiceConversationalApp() {
                   Profile & Biometrics Registered!
                 </h2>
                 <p className="text-base text-[#44474E]">
-                  Welcome aboard, <span className="font-bold text-[#031635]">{profileState.name || 'Senior Creator'}</span>! Your Face ID and voice password are saved.
+                  Welcome aboard, <span className="font-bold text-[#031635]">{profileState.name || 'Member'}</span>! Your Face ID and voice password are saved.
                 </p>
               </div>
 
