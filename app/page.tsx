@@ -2,15 +2,22 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { voiceService } from '@/lib/voice';
-import { voiceAgent, ProfileState, AgentTurnResponse, INITIAL_PROFILE_STATE, getSavedProfile, resetAllAccountsToBlank } from '@/lib/voice-agent';
-import { CheckCircle2, RefreshCw, Volume2, Sparkles, ShieldCheck, UserCheck, Mic, ArrowRight, LogOut, LogIn, UserPlus } from 'lucide-react';
+import { 
+  voiceAgent, ProfileState, AgentTurnResponse, INITIAL_PROFILE_STATE, 
+  getSavedProfile, resetAllAccountsToBlank, registerFaceData, 
+  registerVoicePinData, registerPasswordData, setActiveUserAccount, 
+  isPasswordUsedByOtherUser 
+} from '@/lib/voice-agent';
+import { 
+  CheckCircle2, RefreshCw, Volume2, Sparkles, ShieldCheck, UserCheck, 
+  Mic, ArrowRight, LogOut, LogIn, UserPlus, Camera, Lock, ScanFace, AlertCircle 
+} from 'lucide-react';
 
 import SignInModal from '@/components/SignInModal';
 
-import { useRouter } from 'next/navigation';
-
-type AgentVisualState = 'IDLE' | 'AI_SPEAKING' | 'LISTENING_TO_YOU' | 'PROCESSING' | 'COMPLETED';
+type AgentVisualState = 'IDLE' | 'AI_SPEAKING' | 'LISTENING_TO_YOU' | 'PROCESSING' | 'SECURITY_REGISTRATION' | 'COMPLETED';
 
 export default function VoiceConversationalApp() {
   const router = useRouter();
@@ -25,7 +32,18 @@ export default function VoiceConversationalApp() {
   const [isSignInModalOpen, setIsSignInModalOpen] = useState<boolean>(false);
   const [confirmationMode, setConfirmationMode] = useState<boolean>(false);
 
+  // Security Registration States (Step 2 of Voice Profile Creation)
+  const [capturedFacePhoto, setCapturedFacePhoto] = useState<string | null>(null);
+  const [voicePinInput, setVoicePinInput] = useState<string>('');
+  const [passwordInput, setPasswordInput] = useState<string>('');
+  const [confirmPasswordInput, setConfirmPasswordInput] = useState<string>('');
+  const [securityErrorMsg, setSecurityErrorMsg] = useState<string | null>(null);
+  const [isFaceCaptured, setIsFaceCaptured] = useState<boolean>(false);
+
   const isMounted = useRef(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     isMounted.current = true;
@@ -36,6 +54,7 @@ export default function VoiceConversationalApp() {
     }
     return () => {
       isMounted.current = false;
+      stopCamera();
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         window.speechSynthesis.cancel();
       }
@@ -43,12 +62,53 @@ export default function VoiceConversationalApp() {
     };
   }, []);
 
+  const stopCamera = () => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+  };
+
+  const startSecurityCamera = async () => {
+    try {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+        mediaStreamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      }
+    } catch (e) {
+      console.warn("Camera start error:", e);
+    }
+  };
+
+  const captureFaceSnapshot = () => {
+    if (videoRef.current) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current || document.createElement('canvas');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.filter = 'brightness(1.25) contrast(1.2)';
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        setCapturedFacePhoto(dataUrl);
+        setIsFaceCaptured(true);
+        stopCamera();
+        voiceService.speak("Face ID photo captured successfully!", 'en-IN');
+      }
+    }
+  };
+
   // Logout action - completely resets browser storage to blank
   const handleLogout = () => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
     voiceService.stopListening();
+    stopCamera();
     resetAllAccountsToBlank();
     voiceAgent.resetState();
     setProfileState({ ...INITIAL_PROFILE_STATE });
@@ -57,6 +117,10 @@ export default function VoiceConversationalApp() {
     setAgentState('IDLE');
     setUserTranscript('');
     setConfirmationMode(false);
+    setCapturedFacePhoto(null);
+    setIsFaceCaptured(false);
+    setVoicePinInput('');
+    setPasswordInput('');
     setCurrentAiQuestion("Welcome to SilverHands! I will help you create your profile using voice. What is your name?");
   };
 
@@ -120,9 +184,10 @@ export default function VoiceConversationalApp() {
       setConfirmationMode(turnResponse.confirmation_mode);
 
       if (turnResponse.completed) {
-        setAgentState('COMPLETED');
-        setIsLoggedIn(true);
-        voiceService.speak("Congratulations! Your profile has been created successfully.", 'en-IN');
+        // Transition to Biometric Security & Password Registration Step
+        setAgentState('SECURITY_REGISTRATION');
+        startSecurityCamera();
+        voiceService.speak(`Profile details recorded for ${turnResponse.updated_profile.name || 'you'}. Now let's register your Face ID and Password.`, 'en-IN');
       } else {
         triggerAiSpeaking(turnResponse.next_question);
       }
@@ -132,8 +197,54 @@ export default function VoiceConversationalApp() {
     }
   };
 
+  // Finalize Security Registration (Face ID + Voice PIN + Password)
+  const handleFinalizeSecurityRegistration = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSecurityErrorMsg(null);
+
+    const userName = profileState.name?.trim() || 'Senior Creator';
+
+    if (passwordInput.length < 4) {
+      setSecurityErrorMsg("Password must be at least 4 characters long.");
+      return;
+    }
+    if (passwordInput !== confirmPasswordInput) {
+      setSecurityErrorMsg("Passwords do not match. Please try again.");
+      return;
+    }
+
+    if (isPasswordUsedByOtherUser(userName, passwordInput)) {
+      const msg = "This password is used by another account. Please choose a unique password.";
+      setSecurityErrorMsg(msg);
+      voiceService.speak(msg, 'en-IN');
+      return;
+    }
+
+    // Register Face ID
+    if (capturedFacePhoto) {
+      registerFaceData(userName, capturedFacePhoto);
+    }
+
+    // Register Voice PIN
+    if (voicePinInput) {
+      registerVoicePinData(voicePinInput, userName);
+    }
+
+    // Register Password
+    registerPasswordData(passwordInput, userName);
+
+    // Set Active User Account
+    setActiveUserAccount(userName);
+    setIsLoggedIn(true);
+    setAgentState('COMPLETED');
+
+    voiceService.speak(`Congratulations ${userName}! Your profile, Face ID, and password have been registered successfully. Loading your dashboard now.`, 'en-IN');
+  };
+
   return (
     <div className="min-h-screen bg-[#FAF9F6] text-[#1A1C1A] font-['Lexend',sans-serif] flex flex-col antialiased">
+      <canvas ref={canvasRef} className="hidden" />
+
       {/* Facial Recognition / Password Sign In Modal */}
       <SignInModal
         isOpen={isSignInModalOpen}
@@ -241,7 +352,7 @@ export default function VoiceConversationalApp() {
                   Welcome to SilverHands
                 </h1>
                 <p className="text-lg text-[#44474E] leading-relaxed">
-                  Voice-driven livelihood platform for senior citizens. Sign in with facial photo scan or voice.
+                  Voice-driven livelihood platform for senior citizens. Create account with voice, facial photo scan, or PIN.
                 </p>
               </div>
 
@@ -264,10 +375,102 @@ export default function VoiceConversationalApp() {
                   className="w-full py-4 bg-[#EFEEEB] hover:bg-[#E3E2E0] text-[#031635] text-lg font-bold rounded-2xl flex items-center justify-center gap-3 border-2 border-[#E3E2E0] transition active:scale-95 shadow-sm"
                 >
                   <LogIn className="w-5 h-5 text-[#031635]" />
-                  <span>Sign In (Facial Scan / Voice)</span>
+                  <span>Sign In (Facial Scan / Voice / PIN)</span>
                 </button>
               </div>
             </div>
+          ) : agentState === 'SECURITY_REGISTRATION' ? (
+            /* STEP 2 OF PROFILE CREATION: FACE ID & PASSWORD REGISTRATION */
+            <form onSubmit={handleFinalizeSecurityRegistration} className="w-full space-y-6 text-center">
+              <div className="space-y-2">
+                <div className="w-16 h-16 bg-[#031635] text-[#FDBC13] rounded-full flex items-center justify-center mx-auto shadow-md">
+                  <ScanFace className="w-8 h-8" />
+                </div>
+                <h2 className="text-3xl font-black text-[#031635]">Register Face ID & Password</h2>
+                <p className="text-sm text-[#44474E]">
+                  Complete security registration for <strong className="text-[#031635]">{profileState.name || 'New Creator'}</strong>.
+                </p>
+              </div>
+
+              {securityErrorMsg && (
+                <div className="p-4 bg-rose-50 border-2 border-rose-300 rounded-2xl text-rose-800 text-xs font-bold flex items-center justify-center gap-2 animate-pulse">
+                  <AlertCircle className="w-5 h-5 text-rose-600" /> {securityErrorMsg}
+                </div>
+              )}
+
+              {/* Camera Face Capture Frame */}
+              <div className="relative w-56 h-56 rounded-full overflow-hidden border-4 border-[#FDBC13] shadow-2xl bg-black mx-auto flex items-center justify-center">
+                {!isFaceCaptured ? (
+                  <>
+                    <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform -scale-x-100" />
+                    <div className="absolute inset-0 border-4 border-dashed border-[#FDBC13] rounded-full animate-spin opacity-80" style={{ animationDuration: '6s' }} />
+                  </>
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={capturedFacePhoto || ''} alt="Captured Face" className="w-full h-full object-cover" />
+                )}
+              </div>
+
+              {!isFaceCaptured ? (
+                <button
+                  type="button"
+                  onClick={captureFaceSnapshot}
+                  className="w-full py-3.5 bg-[#2D5A27] text-white text-base font-bold rounded-2xl shadow hover:bg-[#20421c] flex items-center justify-center gap-2 transition"
+                >
+                  <Camera className="w-5 h-5" /> 📸 Capture & Register Face ID
+                </button>
+              ) : (
+                <div className="p-3 bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-extrabold rounded-2xl flex items-center justify-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" /> Face ID Registered!
+                </div>
+              )}
+
+              {/* Password & Voice PIN Inputs */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left pt-2">
+                <div>
+                  <label className="text-xs font-extrabold text-[#031635] block mb-1">4-Digit Voice PIN (Optional)</label>
+                  <input
+                    type="text"
+                    maxLength={4}
+                    value={voicePinInput}
+                    onChange={(e) => setVoicePinInput(e.target.value)}
+                    placeholder="e.g. 4242"
+                    className="w-full px-4 py-3 border-2 border-[#E3E2E0] rounded-xl text-base font-bold text-[#031635] outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-extrabold text-[#031635] block mb-1">Account Password</label>
+                  <input
+                    type="password"
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    placeholder="Enter password"
+                    className="w-full px-4 py-3 border-2 border-[#E3E2E0] focus:border-[#031635] rounded-xl text-base font-bold text-[#031635] outline-none"
+                    required
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="text-xs font-extrabold text-[#031635] block mb-1">Confirm Password</label>
+                  <input
+                    type="password"
+                    value={confirmPasswordInput}
+                    onChange={(e) => setConfirmPasswordInput(e.target.value)}
+                    placeholder="Re-enter password"
+                    className="w-full px-4 py-3 border-2 border-[#E3E2E0] focus:border-[#031635] rounded-xl text-base font-bold text-[#031635] outline-none"
+                    required
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-4 bg-[#031635] text-white text-lg font-bold rounded-2xl shadow-xl hover:bg-[#1a2b4b] flex items-center justify-center gap-2 transition"
+              >
+                <CheckCircle2 className="w-6 h-6 text-[#FDBC13]" /> Complete Account & Open Dashboard
+              </button>
+            </form>
           ) : agentState === 'COMPLETED' ? (
             /* Account & Profile Created Celebration State */
             <div className="text-center space-y-6 my-auto w-full max-w-md">
@@ -277,25 +480,25 @@ export default function VoiceConversationalApp() {
 
               <div className="space-y-2">
                 <h2 className="text-3xl font-extrabold text-[#031635]">
-                  Profile Created Successfully!
+                  Profile & Biometrics Registered!
                 </h2>
                 <p className="text-base text-[#44474E]">
-                  Welcome aboard, <span className="font-bold text-[#031635]">{profileState.name || 'Senior Creator'}</span>! Your profile is verified and active.
+                  Welcome aboard, <span className="font-bold text-[#031635]">{profileState.name || 'Senior Creator'}</span>! Your Face ID and password are saved.
                 </p>
               </div>
 
               <div className="pt-4 flex flex-col gap-3">
                 <Link
-                  href="/profile"
-                  className="w-full py-4 bg-[#031635] text-white text-lg font-bold rounded-2xl shadow-lg flex items-center justify-center gap-2 hover:bg-[#1a2b4b]"
-                >
-                  View My Profile <ArrowRight className="w-5 h-5" />
-                </Link>
-                <Link
                   href="/dashboard"
                   className="w-full py-4 bg-[#FDBC13] text-[#261900] text-lg font-bold rounded-2xl shadow-md flex items-center justify-center gap-2 hover:bg-[#F3B20B]"
                 >
-                  Open Sahayak Dashboard
+                  Open Sahayak Dashboard <ArrowRight className="w-5 h-5" />
+                </Link>
+                <Link
+                  href="/profile"
+                  className="w-full py-4 bg-[#031635] text-white text-lg font-bold rounded-2xl shadow-lg flex items-center justify-center gap-2 hover:bg-[#1a2b4b]"
+                >
+                  View My Profile
                 </Link>
               </div>
             </div>
