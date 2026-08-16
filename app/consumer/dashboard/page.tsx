@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { 
   getSavedConsumerUser, logoutConsumer, ConsumerUser, 
-  INITIAL_PRODUCTS, INITIAL_LIVE_SESSIONS, INITIAL_PROVIDERS, INITIAL_FREE_SESSIONS, INITIAL_VIDEOS,
+  fetchLiveConsumerProducts, fetchLiveConsumerListings, fetchLiveConsumerVideos, getRegisteredProvidersFromStorage,
   SeniorProduct, LiveSession, ServiceProvider, FreeLiveSession, ProviderVideo 
 } from '@/lib/consumer-store';
 import { 
@@ -20,11 +20,11 @@ export default function ConsumerDashboardPage() {
   const [providerSearchQuery, setProviderSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<string>('all');
 
-  const [products, setProducts] = useState<SeniorProduct[]>(INITIAL_PRODUCTS);
-  const [sessions, setSessions] = useState<LiveSession[]>(INITIAL_LIVE_SESSIONS);
-  const [providers, setProviders] = useState<ServiceProvider[]>(INITIAL_PROVIDERS);
-  const [freeSessions, setFreeSessions] = useState<FreeLiveSession[]>(INITIAL_FREE_SESSIONS);
-  const [videos, setVideos] = useState<ProviderVideo[]>(INITIAL_VIDEOS);
+  const [products, setProducts] = useState<SeniorProduct[]>([]);
+  const [sessions, setSessions] = useState<LiveSession[]>([]);
+  const [providers, setProviders] = useState<ServiceProvider[]>([]);
+  const [freeSessions, setFreeSessions] = useState<FreeLiveSession[]>([]);
+  const [videos, setVideos] = useState<ProviderVideo[]>([]);
 
   // Modal / Checkout / Player State
   const [selectedProduct, setSelectedProduct] = useState<SeniorProduct | null>(null);
@@ -47,10 +47,28 @@ export default function ConsumerDashboardPage() {
   }>>([
     {
       role: 'assistant',
-      text: 'Hello! I am your SilverHands AI Matchmaker. Search for anything like "biryani recipe video", "pottery class", "Savitri Devi", or "Tanjore art" and I will find it for you!'
+      text: 'Hello! I am your SilverHands AI Matchmaker. Search for any products, classes, lessons, or service providers and I will find them for you!'
     }
   ]);
   const [isAiThinking, setIsAiThinking] = useState(false);
+
+  const loadAllConsumerData = async () => {
+    try {
+      const [prods, lists, vids] = await Promise.all([
+        fetchLiveConsumerProducts(),
+        fetchLiveConsumerListings(),
+        fetchLiveConsumerVideos()
+      ]);
+      const regProviders = getRegisteredProvidersFromStorage();
+
+      setProducts(prods);
+      setSessions(lists);
+      setVideos(vids);
+      setProviders(regProviders);
+    } catch (e) {
+      console.warn('[ConsumerDashboard] Error loading live provider data:', e);
+    }
+  };
 
   useEffect(() => {
     const saved = getSavedConsumerUser();
@@ -66,7 +84,15 @@ export default function ConsumerDashboardPage() {
     } else {
       setUser(saved);
     }
-  }, []);
+
+    loadAllConsumerData();
+    const interval = setInterval(() => {
+      if (!searchQuery && activeCategory === 'all') {
+        loadAllConsumerData();
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [searchQuery, activeCategory]);
 
   const filteredProviders = providers.filter(p => {
     if (!providerSearchQuery.trim()) return true;
@@ -83,34 +109,49 @@ export default function ConsumerDashboardPage() {
     setSearchQuery(query);
     setActiveCategory(category);
 
+    const allProds = await fetchLiveConsumerProducts();
+    const allSess = await fetchLiveConsumerListings();
+    const allVids = await fetchLiveConsumerVideos();
+
     if (!query && category === 'all') {
-      setProducts(INITIAL_PRODUCTS);
-      setSessions(INITIAL_LIVE_SESSIONS);
-      setFreeSessions(INITIAL_FREE_SESSIONS);
-      setVideos(INITIAL_VIDEOS);
-      setProviders(INITIAL_PROVIDERS);
+      setProducts(allProds);
+      setSessions(allSess);
+      setVideos(allVids);
       return;
     }
 
-    try {
-      const res = await fetch('/api/ai/consumer-match', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: query || category })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setProducts(data.matched_products || []);
-        setSessions(data.matched_sessions || []);
-        if (data.matched_free_sessions) setFreeSessions(data.matched_free_sessions);
-        if (data.matched_videos) setVideos(data.matched_videos);
-      }
-    } catch (e) {
-      const q = query.toLowerCase();
-      setProducts(INITIAL_PRODUCTS.filter(p => p.title.toLowerCase().includes(q) || p.category === category));
-      setSessions(INITIAL_LIVE_SESSIONS.filter(s => s.title.toLowerCase().includes(q) || s.category === category));
-      setVideos(INITIAL_VIDEOS.filter(v => v.title.toLowerCase().includes(q) || v.tags.some(t => t.includes(q))));
+    const q = (query || '').toLowerCase().trim();
+    const cat = (category || 'all').toLowerCase();
+
+    let matchedP = allProds.filter(p => {
+      const matchCat = cat === 'all' || p.category.toLowerCase().includes(cat) || cat.includes(p.category.toLowerCase());
+      const matchQuery = !q || p.title.toLowerCase().includes(q) || p.description.toLowerCase().includes(q) || p.creator_name.toLowerCase().includes(q);
+      return matchCat && matchQuery;
+    });
+
+    // If filtering by category returned no products, show all products matching search query
+    if (matchedP.length === 0 && cat !== 'all') {
+      matchedP = allProds.filter(p => !q || p.title.toLowerCase().includes(q) || p.description.toLowerCase().includes(q));
     }
+
+    let matchedS = allSess.filter(s => {
+      const matchCat = cat === 'all' || s.category.toLowerCase().includes(cat) || cat.includes(s.category.toLowerCase());
+      const matchQuery = !q || s.title.toLowerCase().includes(q) || s.description.toLowerCase().includes(q) || s.creator_name.toLowerCase().includes(q);
+      return matchCat && matchQuery;
+    });
+
+    if (matchedS.length === 0 && cat !== 'all') {
+      matchedS = allSess;
+    }
+
+    let matchedV = allVids.filter(v => {
+      const matchQuery = !q || v.title.toLowerCase().includes(q) || v.description.toLowerCase().includes(q) || v.creator_name.toLowerCase().includes(q);
+      return matchQuery;
+    });
+
+    setProducts(matchedP);
+    setSessions(matchedS);
+    setVideos(matchedV);
   };
 
   const handleAiSearchSubmit = async (e: React.FormEvent) => {
@@ -152,9 +193,9 @@ export default function ConsumerDashboardPage() {
         {
           role: 'assistant',
           text: `Here are matching results for "${userText}":`,
-          products: INITIAL_PRODUCTS.filter(p => p.title.toLowerCase().includes(q)),
-          sessions: INITIAL_LIVE_SESSIONS.filter(s => s.title.toLowerCase().includes(q)),
-          videos: INITIAL_VIDEOS.filter(v => v.title.toLowerCase().includes(q) || v.tags.some(t => t.includes(q)))
+          products: products.filter((p: SeniorProduct) => p.title.toLowerCase().includes(q)),
+          sessions: sessions.filter((s: LiveSession) => s.title.toLowerCase().includes(q)),
+          videos: videos.filter((v: ProviderVideo) => v.title.toLowerCase().includes(q) || v.tags.some((t: string) => t.includes(q)))
         }
       ]);
     } finally {
@@ -287,11 +328,12 @@ export default function ConsumerDashboardPage() {
         {/* Category Navigation Pills */}
         <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar">
           {[
-            { id: 'all', label: '🌟 All Services & Videos' },
+            { id: 'all', label: '🌟 All Products & Services' },
+            { id: 'cooking', label: '🍲 Cooking, Food & Recipes' },
             { id: 'pottery', label: '🏺 Pottery & Terracotta' },
             { id: 'crafts', label: '🎨 Tanjore Art & Crafts' },
-            { id: 'cooking', label: '🍲 Biryani & Heritage Cooking' },
-            { id: 'textiles', label: '🧶 Woolen Handloom Textiles' }
+            { id: 'textiles', label: '🧶 Handloom & Textiles' },
+            { id: 'general', label: '📦 General & Special Courses' }
           ].map(cat => (
             <button
               key={cat.id}
@@ -381,60 +423,68 @@ export default function ConsumerDashboardPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {videos.map(video => (
-              <div key={video.id} className="bg-white rounded-3xl border border-[#E3E2E0] overflow-hidden shadow-md hover:shadow-xl transition flex flex-col justify-between group">
-                <div>
-                  <div className="relative h-48 w-full bg-slate-900 overflow-hidden cursor-pointer" onClick={() => setActiveVideo(video)}>
-                    <img src={video.thumbnail_url} alt={video.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 opacity-90" />
-                    <div className="absolute inset-0 bg-black/30 flex items-center justify-center group-hover:bg-black/10 transition">
-                      <div className="w-12 h-12 rounded-full bg-white/90 text-[#031635] flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
-                        <Play className="w-6 h-6 fill-[#031635] ml-1" />
+          {videos.length === 0 ? (
+            <div className="bg-white rounded-3xl border-2 border-dashed border-[#E3E2E0] p-8 text-center space-y-2">
+              <Video className="w-10 h-10 text-purple-400 mx-auto" />
+              <h3 className="text-base font-extrabold text-[#031635]">No Recorded Lessons or Recipes Posted Yet</h3>
+              <p className="text-xs text-[#44474E] font-medium">When service providers record or post video tutorials, they will appear right here!</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {videos.map(video => (
+                <div key={video.id} className="bg-white rounded-3xl border border-[#E3E2E0] overflow-hidden shadow-md hover:shadow-xl transition flex flex-col justify-between group">
+                  <div>
+                    <div className="relative h-48 w-full bg-slate-900 overflow-hidden cursor-pointer" onClick={() => setActiveVideo(video)}>
+                      <img src={video.thumbnail_url} alt={video.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 opacity-90" />
+                      <div className="absolute inset-0 bg-black/30 flex items-center justify-center group-hover:bg-black/10 transition">
+                        <div className="w-12 h-12 rounded-full bg-white/90 text-[#031635] flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                          <Play className="w-6 h-6 fill-[#031635] ml-1" />
+                        </div>
                       </div>
-                    </div>
-                    <span className="absolute bottom-3 right-3 px-2.5 py-1 rounded-lg bg-black/80 text-white font-extrabold text-xs backdrop-blur-md">
-                      {video.video_duration}
-                    </span>
-                  </div>
-
-                  <div className="p-5">
-                    <div className="flex items-center gap-2 text-xs font-extrabold text-[#44474E] mb-2">
-                      <span>{video.creator_avatar}</span>
-                      <span>{video.creator_name}</span>
-                      <span>•</span>
-                      <span className="flex items-center text-slate-500 font-bold">
-                        <Eye className="w-3.5 h-3.5 mr-1" /> {video.views_count} views
+                      <span className="absolute bottom-3 right-3 px-2.5 py-1 rounded-lg bg-black/80 text-white font-extrabold text-xs backdrop-blur-md">
+                        {video.video_duration}
                       </span>
                     </div>
 
-                    <h3 className="text-base font-black text-[#031635] leading-snug mb-2 group-hover:text-purple-700 transition">
-                      {video.title}
-                    </h3>
-                    <p className="text-xs font-semibold text-[#44474E] line-clamp-2 mb-3">
-                      {video.description}
-                    </p>
-
-                    <div className="flex flex-wrap gap-1">
-                      {video.tags.slice(0, 3).map(tag => (
-                        <span key={tag} className="px-2 py-0.5 rounded-md bg-[#FAF9F6] text-[#44474E] text-[10px] font-bold border border-[#E3E2E0]">
-                          #{tag}
+                    <div className="p-5">
+                      <div className="flex items-center gap-2 text-xs font-extrabold text-[#44474E] mb-2">
+                        <span>{video.creator_avatar}</span>
+                        <span>{video.creator_name}</span>
+                        <span>•</span>
+                        <span className="flex items-center text-slate-500 font-bold">
+                          <Eye className="w-3.5 h-3.5 mr-1" /> {video.views_count} views
                         </span>
-                      ))}
+                      </div>
+
+                      <h3 className="text-base font-black text-[#031635] leading-snug mb-2 group-hover:text-purple-700 transition">
+                        {video.title}
+                      </h3>
+                      <p className="text-xs font-semibold text-[#44474E] line-clamp-2 mb-3">
+                        {video.description}
+                      </p>
+
+                      <div className="flex flex-wrap gap-1">
+                        {video.tags.slice(0, 3).map(tag => (
+                          <span key={tag} className="px-2 py-0.5 rounded-md bg-[#FAF9F6] text-[#44474E] text-[10px] font-bold border border-[#E3E2E0]">
+                            #{tag}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="p-5 pt-0">
-                  <button
-                    onClick={() => setActiveVideo(video)}
-                    className="w-full py-2.5 bg-[#031635] hover:bg-[#062454] text-white font-extrabold text-xs rounded-2xl shadow-sm transition flex items-center justify-center gap-2"
-                  >
-                    <Play className="w-4 h-4 fill-white" /> Watch Posted Video Tutorial
-                  </button>
+                  <div className="p-5 pt-0">
+                    <button
+                      onClick={() => setActiveVideo(video)}
+                      className="w-full py-2.5 bg-[#031635] hover:bg-[#062454] text-white font-extrabold text-xs rounded-2xl shadow-sm transition flex items-center justify-center gap-2"
+                    >
+                      <Play className="w-4 h-4 fill-white" /> Watch Posted Video Tutorial
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </section>
 
         {/* SECTION 1 (TOP PRIORITIZED): PAID 1-ON-1 LIVE SESSIONS & APPOINTMENTS */}
@@ -453,65 +503,73 @@ export default function ConsumerDashboardPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {sessions.map(session => (
-              <div key={session.id} className="bg-white rounded-3xl border-2 border-[#031635]/15 p-6 shadow-md hover:shadow-xl transition flex flex-col justify-between group relative overflow-hidden">
-                <div className="absolute top-0 right-0 px-3 py-1 bg-red-600 text-white font-extrabold text-[11px] rounded-bl-2xl">
-                  Paid 1-on-1 Appointment
-                </div>
+          {sessions.length === 0 ? (
+            <div className="bg-white rounded-3xl border-2 border-dashed border-[#E3E2E0] p-8 text-center space-y-2">
+              <Calendar className="w-10 h-10 text-red-400 mx-auto" />
+              <h3 className="text-base font-extrabold text-[#031635]">No Paid Live Sessions Posted Yet</h3>
+              <p className="text-xs text-[#44474E] font-medium">When service providers offer live 1-on-1 appointments, they will appear here!</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {sessions.map(session => (
+                <div key={session.id} className="bg-white rounded-3xl border-2 border-[#031635]/15 p-6 shadow-md hover:shadow-xl transition flex flex-col justify-between group relative overflow-hidden">
+                  <div className="absolute top-0 right-0 px-3 py-1 bg-red-600 text-white font-extrabold text-[11px] rounded-bl-2xl">
+                    Paid 1-on-1 Appointment
+                  </div>
 
-                <div>
-                  <div className="flex items-center justify-between mb-3 mt-2">
-                    <span className="px-3 py-1 rounded-full bg-red-50 text-red-700 font-extrabold text-xs flex items-center gap-1 border border-red-200">
-                      <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" /> {session.session_type} Video Call
-                    </span>
-                    <div className="flex items-center gap-1 text-amber-500 font-extrabold text-xs">
-                      <Star className="w-4 h-4 fill-amber-500" /> {session.rating}
+                  <div>
+                    <div className="flex items-center justify-between mb-3 mt-2">
+                      <span className="px-3 py-1 rounded-full bg-red-50 text-red-700 font-extrabold text-xs flex items-center gap-1 border border-red-200">
+                        <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" /> {session.session_type} Video Call
+                      </span>
+                      <div className="flex items-center gap-1 text-amber-500 font-extrabold text-xs">
+                        <Star className="w-4 h-4 fill-amber-500" /> {session.rating}
+                      </div>
+                    </div>
+
+                    <h3 className="text-lg font-black text-[#031635] leading-snug mb-2 group-hover:text-blue-700 transition">
+                      {session.title}
+                    </h3>
+                    <p className="text-xs font-semibold text-[#44474E] line-clamp-2 mb-4">
+                      {session.description}
+                    </p>
+
+                    <div className="bg-[#FAF9F6] p-3.5 rounded-2xl border border-[#E3E2E0] mb-4 flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-2xl bg-[#031635] text-white flex items-center justify-center text-2xl font-bold">
+                        {session.creator_avatar}
+                      </div>
+                      <div>
+                        <span className="font-extrabold text-sm text-[#031635] block">{session.creator_name}</span>
+                        <span className="text-[11px] font-bold text-[#44474E] block">{session.creator_experience}</span>
+                      </div>
                     </div>
                   </div>
 
-                  <h3 className="text-lg font-black text-[#031635] leading-snug mb-2 group-hover:text-blue-700 transition">
-                    {session.title}
-                  </h3>
-                  <p className="text-xs font-semibold text-[#44474E] line-clamp-2 mb-4">
-                    {session.description}
-                  </p>
+                  <div>
+                    <div className="flex items-center justify-between mb-4 border-t border-[#E3E2E0] pt-3">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-[#44474E]">
+                        <Clock className="w-4 h-4" /> {session.duration_mins} Mins Duration
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[11px] text-[#44474E] block font-bold">Appointment Fee</span>
+                        <span className="text-xl font-black text-[#031635]">₹{session.price}</span>
+                      </div>
+                    </div>
 
-                  <div className="bg-[#FAF9F6] p-3.5 rounded-2xl border border-[#E3E2E0] mb-4 flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-2xl bg-[#031635] text-white flex items-center justify-center text-2xl font-bold">
-                      {session.creator_avatar}
-                    </div>
-                    <div>
-                      <span className="font-extrabold text-sm text-[#031635] block">{session.creator_name}</span>
-                      <span className="text-[11px] font-bold text-[#44474E] block">{session.creator_experience}</span>
-                    </div>
+                    <button
+                      onClick={() => {
+                        setSelectedSession(session);
+                        setSelectedSlot(session.available_slots[0] || '');
+                      }}
+                      className="w-full py-3.5 bg-[#031635] hover:bg-[#062454] text-white font-extrabold text-sm rounded-2xl shadow-md transition flex items-center justify-center gap-2"
+                    >
+                      <Calendar className="w-4 h-4 text-[#FDBC13]" /> Book Paid 1-on-1 Appointment
+                    </button>
                   </div>
                 </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-4 border-t border-[#E3E2E0] pt-3">
-                    <div className="flex items-center gap-1.5 text-xs font-bold text-[#44474E]">
-                      <Clock className="w-4 h-4" /> {session.duration_mins} Mins Duration
-                    </div>
-                    <div className="text-right">
-                      <span className="text-[11px] text-[#44474E] block font-bold">Appointment Fee</span>
-                      <span className="text-xl font-black text-[#031635]">₹{session.price}</span>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      setSelectedSession(session);
-                      setSelectedSlot(session.available_slots[0] || '');
-                    }}
-                    className="w-full py-3.5 bg-[#031635] hover:bg-[#062454] text-white font-extrabold text-sm rounded-2xl shadow-md transition flex items-center justify-center gap-2"
-                  >
-                    <Calendar className="w-4 h-4 text-[#FDBC13]" /> Book Paid 1-on-1 Appointment
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </section>
 
         {/* SECTION 2 (MIDDLE): SERVICE PROVIDER ACCOUNT SEARCH BY NAME OR SKILL */}
@@ -525,7 +583,7 @@ export default function ConsumerDashboardPage() {
                 <User className="w-6 h-6 text-blue-600" /> Service Provider Account Directory (Search by Name or Skill)
               </h2>
               <p className="text-sm font-semibold text-[#44474E]">
-                Search service providers directly by name (e.g. <em>Meenakshi Ammal, Savitri Devi</em>) or by skill (e.g. <em>Pottery, Cooking, Tanjore Art</em>).
+                Search service providers directly by name or by skill.
               </p>
             </div>
 
@@ -541,52 +599,60 @@ export default function ConsumerDashboardPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {filteredProviders.map(provider => (
-              <div key={provider.id} className="bg-[#FAF9F6] rounded-3xl border border-[#E3E2E0] p-5 shadow-sm hover:shadow-md transition flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="w-12 h-12 rounded-2xl bg-[#031635] text-white flex items-center justify-center text-2xl font-bold shadow-sm">
-                      {provider.avatar}
+          {filteredProviders.length === 0 ? (
+            <div className="bg-[#FAF9F6] rounded-3xl border-2 border-dashed border-[#E3E2E0] p-8 text-center space-y-2">
+              <UserCheck className="w-10 h-10 text-blue-400 mx-auto" />
+              <h3 className="text-base font-extrabold text-[#031635]">No Registered Service Providers Found</h3>
+              <p className="text-xs text-[#44474E] font-medium">As soon as service providers register accounts via the Provider portal, they will appear here!</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {filteredProviders.map(provider => (
+                <div key={provider.id} className="bg-[#FAF9F6] rounded-3xl border border-[#E3E2E0] p-5 shadow-sm hover:shadow-md transition flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-12 h-12 rounded-2xl bg-[#031635] text-white flex items-center justify-center text-2xl font-bold shadow-sm">
+                        {provider.avatar}
+                      </div>
+                      <div>
+                        <h4 className="font-extrabold text-base text-[#031635]">{provider.name}</h4>
+                        <span className="text-[11px] font-extrabold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200 block w-fit">
+                          {provider.experience_years}+ Yrs Experience
+                        </span>
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="font-extrabold text-base text-[#031635]">{provider.name}</h4>
-                      <span className="text-[11px] font-extrabold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200 block w-fit">
-                        {provider.experience_years}+ Yrs Experience
-                      </span>
+
+                    <div className="space-y-2 mb-4">
+                      <p className="text-xs font-extrabold text-[#031635] line-clamp-1">
+                        🎯 Skill: {provider.skill}
+                      </p>
+                      <p className="text-xs font-semibold text-[#44474E] line-clamp-2">
+                        {provider.bio}
+                      </p>
+                      <div className="flex items-center justify-between text-xs font-bold text-[#44474E] pt-1">
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-3.5 h-3.5 text-[#031635]" /> {provider.location}
+                        </span>
+                        <span className="flex items-center gap-1 text-amber-500 font-extrabold">
+                          <Star className="w-3.5 h-3.5 fill-amber-500" /> {provider.rating}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="space-y-2 mb-4">
-                    <p className="text-xs font-extrabold text-[#031635] line-clamp-1">
-                      🎯 Skill: {provider.skill}
-                    </p>
-                    <p className="text-xs font-semibold text-[#44474E] line-clamp-2">
-                      {provider.bio}
-                    </p>
-                    <div className="flex items-center justify-between text-xs font-bold text-[#44474E] pt-1">
-                      <span className="flex items-center gap-1">
-                        <MapPin className="w-3.5 h-3.5 text-[#031635]" /> {provider.location}
-                      </span>
-                      <span className="flex items-center gap-1 text-amber-500 font-extrabold">
-                        <Star className="w-3.5 h-3.5 fill-amber-500" /> {provider.rating}
-                      </span>
-                    </div>
-                  </div>
+                  <button
+                    onClick={() => {
+                      setSelectedProvider(provider);
+                      setSelectedSlot(provider.available_slots[0] || '');
+                    }}
+                    className="w-full py-2.5 bg-[#FDBC13] hover:bg-[#e0a50b] text-[#031635] font-extrabold text-xs rounded-2xl shadow-sm transition flex items-center justify-center gap-1.5"
+                  >
+                    <Calendar className="w-3.5 h-3.5" /> Book 1-on-1 Appointment (₹{provider.hourly_rate})
+                  </button>
                 </div>
-
-                <button
-                  onClick={() => {
-                    setSelectedProvider(provider);
-                    setSelectedSlot(provider.available_slots[0] || '');
-                  }}
-                  className="w-full py-2.5 bg-[#FDBC13] hover:bg-[#e0a50b] text-[#031635] font-extrabold text-xs rounded-2xl shadow-sm transition flex items-center justify-center gap-1.5"
-                >
-                  <Calendar className="w-3.5 h-3.5" /> Book 1-on-1 Appointment (₹{provider.hourly_rate})
-                </button>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </section>
 
         {/* SECTION 3 (BOTTOM/LAST): BUYABLE PRODUCTS & PHYSICAL CREATIONS */}
@@ -600,62 +666,70 @@ export default function ConsumerDashboardPage() {
                 <ShoppingBag className="w-7 h-7 text-[#FDBC13]" /> Buyable Products & Physical Creations
               </h2>
               <p className="text-sm font-semibold text-[#44474E]">
-                Authentic handmade terracotta pottery, Tanjore paintings, woolen textiles, and homemade recipes.
+                Authentic handmade products posted by service providers.
               </p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {products.map(product => (
-              <div key={product.id} className="bg-white rounded-3xl border border-[#E3E2E0] overflow-hidden shadow-md hover:shadow-xl transition flex flex-col justify-between group">
-                <div>
-                  <div className="relative h-48 w-full bg-slate-100 overflow-hidden">
-                    <img
-                      src={product.image_url}
-                      alt={product.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
-                    <span className="absolute top-3 right-3 px-3 py-1 rounded-full bg-black/70 text-white font-extrabold text-xs backdrop-blur-md">
-                      {product.stock} left
-                    </span>
-                  </div>
-
-                  <div className="p-5">
-                    <div className="flex items-center gap-2 text-xs font-extrabold text-[#44474E] mb-2">
-                      <span>{product.creator_avatar}</span>
-                      <span>{product.creator_name}</span>
-                      <span>•</span>
-                      <span className="flex items-center text-amber-500 font-extrabold">
-                        <Star className="w-3.5 h-3.5 fill-amber-500 mr-0.5" /> {product.rating}
+          {products.length === 0 ? (
+            <div className="bg-white rounded-3xl border-2 border-dashed border-[#E3E2E0] p-8 text-center space-y-2">
+              <ShoppingBag className="w-10 h-10 text-[#FDBC13] mx-auto" />
+              <h3 className="text-base font-extrabold text-[#031635]">No Products Posted Yet</h3>
+              <p className="text-xs text-[#44474E] font-medium">When service providers post products for sale in the provider portal, they will automatically appear here!</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {products.map(product => (
+                <div key={product.id} className="bg-white rounded-3xl border border-[#E3E2E0] overflow-hidden shadow-md hover:shadow-xl transition flex flex-col justify-between group">
+                  <div>
+                    <div className="relative h-48 w-full bg-slate-100 overflow-hidden">
+                      <img
+                        src={product.image_url}
+                        alt={product.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                      <span className="absolute top-3 right-3 px-3 py-1 rounded-full bg-black/70 text-white font-extrabold text-xs backdrop-blur-md">
+                        {product.stock} left
                       </span>
                     </div>
 
-                    <h3 className="text-base font-black text-[#031635] leading-snug mb-2 group-hover:text-blue-700 transition">
-                      {product.title}
-                    </h3>
-                    <p className="text-xs font-semibold text-[#44474E] line-clamp-2 mb-4">
-                      {product.description}
-                    </p>
-                  </div>
-                </div>
+                    <div className="p-5">
+                      <div className="flex items-center gap-2 text-xs font-extrabold text-[#44474E] mb-2">
+                        <span>{product.creator_avatar}</span>
+                        <span>{product.creator_name}</span>
+                        <span>•</span>
+                        <span className="flex items-center text-amber-500 font-extrabold">
+                          <Star className="w-3.5 h-3.5 fill-amber-500 mr-0.5" /> {product.rating}
+                        </span>
+                      </div>
 
-                <div className="px-5 pb-5 pt-0">
-                  <div className="flex items-center justify-between mb-3 border-t border-[#E3E2E0] pt-3">
-                    <div>
-                      <span className="text-[10px] font-bold text-[#44474E] uppercase block">Price</span>
-                      <span className="text-xl font-black text-[#031635]">₹{product.price}</span>
+                      <h3 className="text-base font-black text-[#031635] leading-snug mb-2 group-hover:text-blue-700 transition">
+                        {product.title}
+                      </h3>
+                      <p className="text-xs font-semibold text-[#44474E] line-clamp-2 mb-4">
+                        {product.description}
+                      </p>
                     </div>
-                    <button
-                      onClick={() => setSelectedProduct(product)}
-                      className="px-4 py-2.5 bg-[#FDBC13] hover:bg-[#e0a50b] text-[#031635] font-extrabold text-sm rounded-2xl shadow-sm transition flex items-center gap-1.5"
-                    >
-                      <ShoppingBag className="w-4 h-4" /> Buy Product
-                    </button>
+                  </div>
+
+                  <div className="px-5 pb-5 pt-0">
+                    <div className="flex items-center justify-between mb-3 border-t border-[#E3E2E0] pt-3">
+                      <div>
+                        <span className="text-[10px] font-bold text-[#44474E] uppercase block">Price</span>
+                        <span className="text-xl font-black text-[#031635]">₹{product.price}</span>
+                      </div>
+                      <button
+                        onClick={() => setSelectedProduct(product)}
+                        className="px-4 py-2.5 bg-[#FDBC13] hover:bg-[#e0a50b] text-[#031635] font-extrabold text-sm rounded-2xl shadow-sm transition flex items-center gap-1.5"
+                      >
+                        <ShoppingBag className="w-4 h-4" /> Buy Product
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </section>
       </main>
 
