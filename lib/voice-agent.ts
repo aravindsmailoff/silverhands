@@ -347,7 +347,8 @@ export function registerFaceData(name: string, photoUrl: string): RegisteredFace
 }
 
 export function registerVoicePinData(pin: string, targetUserName?: string): string {
-  const name = targetUserName || getActiveUserAccount() || 'Senior Creator';
+  const name = targetUserName || getActiveUserAccount();
+  if (!name) return pin;
   registerCompleteUserAccount({
     userName: name,
     profile: getSavedProfile(name),
@@ -357,7 +358,8 @@ export function registerVoicePinData(pin: string, targetUserName?: string): stri
 }
 
 export function registerPasswordData(password: string, targetUserName?: string): string {
-  const name = targetUserName || getActiveUserAccount() || 'Senior Creator';
+  const name = targetUserName || getActiveUserAccount();
+  if (!name) return password;
   registerCompleteUserAccount({
     userName: name,
     profile: getSavedProfile(name),

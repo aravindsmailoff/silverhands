@@ -8,7 +8,7 @@ import {
   voiceAgent, ProfileState, AgentTurnResponse, INITIAL_PROFILE_STATE, 
   getSavedProfile, resetAllAccountsToBlank, registerFaceData, 
   registerVoicePinData, registerPasswordData, registerCompleteUserAccount, 
-  setActiveUserAccount, isPasswordUsedByOtherUser 
+  setActiveUserAccount, getActiveUserAccount, isPasswordUsedByOtherUser 
 } from '@/lib/voice-agent';
 import { 
   CheckCircle2, RefreshCw, Volume2, Sparkles, ShieldCheck, UserCheck, 
@@ -104,8 +104,10 @@ export default function VoiceConversationalApp() {
         setIsFaceCaptured(true);
         stopCamera();
 
-        const userName = profileState.name?.trim() || 'Aravind';
-        registerFaceData(userName, dataUrl);
+        const userName = profileState.name?.trim() || getActiveUserAccount() || '';
+        if (userName) {
+          registerFaceData(userName, dataUrl);
+        }
 
         voiceService.speak("Face ID captured! Now let's set your voice PIN and password.", 'en-IN', () => {
           startListeningForVoicePin();
@@ -128,8 +130,10 @@ export default function VoiceConversationalApp() {
           setVoicePinInput(pin);
           setIsListeningPin(false);
 
-          const userName = profileState.name?.trim() || 'Aravind';
-          registerVoicePinData(pin, userName);
+          const userName = profileState.name?.trim() || getActiveUserAccount() || '';
+          if (userName) {
+            registerVoicePinData(pin, userName);
+          }
 
           voiceService.speak(`Voice PIN recorded as ${pin}. Now speak your account password.`, 'en-IN', () => {
             startListeningForPassword();
@@ -154,8 +158,10 @@ export default function VoiceConversationalApp() {
           setConfirmPasswordInput(spokenPass);
           setIsListeningPassword(false);
 
-          const userName = profileState.name?.trim() || 'Aravind';
-          registerPasswordData(spokenPass, userName);
+          const userName = profileState.name?.trim() || getActiveUserAccount() || '';
+          if (userName) {
+            registerPasswordData(spokenPass, userName);
+          }
 
           voiceService.speak(`Password recorded as ${spokenPass}. All security credentials captured!`, 'en-IN');
         }
@@ -265,7 +271,12 @@ export default function VoiceConversationalApp() {
     if (e) e.preventDefault();
     setSecurityErrorMsg(null);
 
-    const userName = profileState.name?.trim() || 'Senior Creator';
+    const userName = profileState.name?.trim() || getActiveUserAccount() || '';
+    if (!userName) {
+      setSecurityErrorMsg("Please provide your name first.");
+      voiceService.speak("Please provide your name first.", 'en-IN');
+      return;
+    }
 
     if (!passwordInput || passwordInput.length < 4) {
       setSecurityErrorMsg("Please speak or enter a password of at least 4 characters.");
