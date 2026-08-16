@@ -21,7 +21,10 @@ export interface ProfileExtractionResult {
 export function normalizeName(rawSpeech: string): { name: string | null; confidence: number } {
   if (!rawSpeech || !rawSpeech.trim()) return { name: null, confidence: 0 };
 
-  let text = rawSpeech
+  // Isolate name clause if part of a compound introduction (e.g. "I'm Harish, I do tailoring...")
+  let clause = rawSpeech.split(/,\s*|\s+(?:and\s+)?(?:i\s+do|i\s+have|i\s+know|i\s+teach|i\s+work|i\s+am\s+from|from|living\s+in)\b/i)[0];
+
+  let text = clause
     .replace(/^(uh|um|well|actually|basically|so|like|hello|hi|hey|good\s+morning|good\s+afternoon|good\s+evening)\s+/gi, '')
     .trim();
 
@@ -94,6 +97,10 @@ export function normalizeSkill(rawSpeech: string): {
 
   // Strip conversational self-declarations
   text = text
+    .replace(/^i'?ve\s+been\s+doing\s+/i, '')
+    .replace(/^i'?ve\s+been\s+/i, '')
+    .replace(/^i\s+have\s+been\s+doing\s+/i, '')
+    .replace(/^i\s+have\s+been\s+/i, '')
     .replace(/^i'?m\s+good\s+at\s+playing\s+/i, '')
     .replace(/^i'?m\s+good\s+at\s+doing\s+/i, '')
     .replace(/^i'?m\s+good\s+at\s+making\s+/i, '')
@@ -103,7 +110,7 @@ export function normalizeSkill(rawSpeech: string): {
     .replace(/^i\s+am\s+good\s+at\s+/i, '')
     .replace(/^i\s+know\s+how\s+to\s+play\s+/i, '')
     .replace(/^i\s+know\s+how\s+to\s+make\s+/i, '')
-    .replace(/^i\s+know\s+how\s+to\s+cook\s+/i, '')
+    .replace(/^i\s+know\s+how\s+to\s+cook\s+/i, 'cooking ')
     .replace(/^i\s+know\s+how\s+to\s+/i, '')
     .replace(/^i\s+know\s+/i, '')
     .replace(/^i\s+like\s+to\s+play\s+/i, '')
@@ -209,8 +216,29 @@ export function normalizeSkill(rawSpeech: string): {
     };
   }
 
-  // Generic fallback: title-case the cleaned skill string
-  if (text.length >= 2) {
+  // Reject conversational self-intros, fillers, numbers, and location clauses
+  const fillerWords = ['actually', 'basically', 'well', 'also', 'so', 'yes', 'no', 'yeah', 'hello', 'hi', 'hey', 'okay', 'ok', 'right', 'sure', 'fine'];
+  if (
+    fillerWords.includes(text) ||
+    text.match(/^\d+\s*(?:years?|yrs?|yr)?$/i) ||
+    text.match(/^(?:about|around|for|with)?\s*\d+\s*(?:years?|yrs?)?$/i) ||
+    text.match(/^(?:about|around|for|with)?\s*(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty)\s*(?:years?|yrs?)?$/i) ||
+    text.match(/^\d+$/) ||
+    text.includes('from ') ||
+    text.includes('living in') ||
+    text.includes('live in') ||
+    text.startsWith('my name is') ||
+    text.match(/^i'?m\s+[a-z]+$/i) ||
+    text.match(/^i\s+am\s+[a-z]+$/i) ||
+    text === 'yes' ||
+    text === 'no' ||
+    text.includes('correct')
+  ) {
+    return { normalized: null, confidence: 0, needs_clarification: true };
+  }
+
+  // Generic fallback: title-case the cleaned skill string (must be at least 3 chars and not a pronoun/location)
+  if (text.length >= 3) {
     const formatted = text
       .split(' ')
       .filter(w => w.length > 0)
@@ -252,7 +280,7 @@ export function normalizeSkillsList(rawSpeech: string): ProfileSkill[] {
 
   // Split speech on multi-skill connectives (commas, 'and', 'but also', 'as well as', 'also')
   const chunks = rawSpeech
-    .split(/,|\band\s+(?:also|i\s+also|i\s+am\s+also|i\s+teach|i\s+do|as\s+well\s+as)?\b|\balso\b|\bas\s+well\s+as\b|\balong\s+with\b|\bplus\b|\bbut\s+(?:also|i\s+also)?\b/gi)
+    .split(/,|\b(?:and|also|as\s+well\s+as|along\s+with|plus|but)\b/gi)
     .map(c => c.trim())
     .filter(c => c.length > 1);
 
@@ -268,8 +296,8 @@ export function normalizeSkillsList(rawSpeech: string): ProfileSkill[] {
     if (chunk.match(/\b(just\s+started|beginner|fresh|started\s+recently|learning\s+now|start)\b/i)) {
       chunkExperience = 0;
     } else {
-      const expMatch = chunk.match(/\b(?:for|with)?\s*(\d+)\s*(?:years?|yrs?)?\b/i);
-      if (expMatch && chunk.match(/\b(?:years?|yrs?|for\s+\d+|with\s+\d+)\b/i)) {
+      const expMatch = chunk.match(/\b(?:for|with|about|around|approx)?\s*(\d+)\s*(?:years?|yrs?)?\b/i);
+      if (expMatch && chunk.match(/\b(?:years?|yrs?|for\s+\d+|with\s+\d+|about\s+\d+|around\s+\d+)\b/i)) {
         const parsed = parseInt(expMatch[1], 10);
         if (!isNaN(parsed) && parsed >= 0 && parsed <= 80) {
           chunkExperience = parsed;
@@ -277,7 +305,7 @@ export function normalizeSkillsList(rawSpeech: string): ProfileSkill[] {
       } else {
         // Check for number words in chunk (e.g. "for six years" or "for six")
         for (const [word, num] of Object.entries(NUMBER_WORDS)) {
-          if (new RegExp(`\\b(?:for|with)?\\s*${word}\\s*(?:years?|yrs?)?\\b`, 'i').test(chunk) && chunk.match(/\b(?:years?|for\s+[a-z]+)\b/i)) {
+          if (new RegExp(`\\b(?:for|with|about|around)?\\s*${word}\\s*(?:years?|yrs?)?\\b`, 'i').test(chunk) && chunk.match(/\b(?:years?|for\s+[a-z]+|about\s+[a-z]+)\b/i)) {
             chunkExperience = num;
             break;
           }
@@ -287,27 +315,35 @@ export function normalizeSkillsList(rawSpeech: string): ProfileSkill[] {
 
     // Clean chunk text from experience phrases to isolate the skill name
     const skillNameText = chunk
-      .replace(/\b(?:for|with|doing\s+this\s+for)?\s*\d+\s*(?:years?|yrs?)?\b/gi, '')
-      .replace(/\b(?:for|with)?\s*(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty)\s*(?:years?|yrs?)?\b/gi, '')
+      .replace(/\b(?:for|with|about|around|approx|doing\s+this\s+for)?\s*(?:about|around)?\s*\d+\s*(?:years?|yrs?)?\b/gi, '')
+      .replace(/\b(?:for|with|about|around)?\s*(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty)\s*(?:years?|yrs?)?\b/gi, '')
       .replace(/\b(just\s+started|started\s+recently|beginner)\b/gi, '')
       .replace(/^(i\s+mainly\s+do|i\s+mainly|i\s+also\s+do|i\s+also|i\s+know|i\s+teach|i\s+do|and\s+i|but\s+i)\s+/gi, '')
+      .replace(/\s+(for|about|around|with)$/i, '')
       .trim();
 
     const normalized = normalizeSkill(skillNameText);
-    if (normalized.normalized && !seenNames.has(normalized.normalized)) {
-      seenNames.add(normalized.normalized);
+    if (normalized.normalized) {
+      const existing = results.find(r => r.name.toLowerCase() === normalized.normalized!.toLowerCase());
+      if (existing) {
+        if (chunkExperience !== null) {
+          existing.experience_years = chunkExperience;
+        }
+      } else {
+        seenNames.add(normalized.normalized);
 
-      let skillType: 'primary' | 'additional' = i === 0 ? 'primary' : 'additional';
-      if (isMainlyPrimary) {
-        if (chunk.toLowerCase().includes('mainly') || i === 0) skillType = 'primary';
-        else skillType = 'additional';
+        let skillType: 'primary' | 'additional' = results.length === 0 ? 'primary' : 'additional';
+        if (isMainlyPrimary) {
+          if (chunk.toLowerCase().includes('mainly') || results.length === 0) skillType = 'primary';
+          else skillType = 'additional';
+        }
+
+        results.push({
+          name: normalized.normalized,
+          type: skillType,
+          experience_years: chunkExperience
+        });
       }
-
-      results.push({
-        name: normalized.normalized,
-        type: skillType,
-        experience_years: chunkExperience
-      });
     }
   }
 
@@ -480,7 +516,18 @@ export interface CorrectionParseResult {
 export function parseCorrectionIntent(speech: string): CorrectionParseResult {
   const text = speech.toLowerCase().trim();
 
-  // 1. Check for inline skill correction
+  // 1. Check for inline experience correction
+  if (text.includes('year') || text.includes('years') || text.includes('experience') || text.includes('doing this for') || text.match(/\b\d+\s*(?:years?|yrs?)?\b/i)) {
+    if (text === 'experience' || text === 'my experience' || text === 'the experience' || text === 'experience is wrong') {
+      return { intent: 'field_targeted', targetField: 'experience_years' };
+    }
+    const exp = normalizeExperience(speech);
+    if (exp.experience_years !== null) {
+      return { intent: 'inline_correction', targetField: 'experience_years', extractedValue: exp.experience_years };
+    }
+  }
+
+  // 2. Check for inline skill correction
   if (text.includes('skill') || text.includes('craft') || text.includes('work') || text.includes('teach') || text.includes('playing') || text.includes('good at') || text.includes('badminton') || text.includes('tailor') || text.includes('pottery') || text.includes('cooking') || text.includes('math')) {
     // If it's just mentioning the field: "my skill", "the skill", "skill is wrong"
     if (text === 'skill' || text === 'my skill' || text === 'the skill' || text === 'skill is wrong' || text === 'skill is incorrect') {
@@ -490,17 +537,6 @@ export function parseCorrectionIntent(speech: string): CorrectionParseResult {
     const norm = normalizeSkill(speech);
     if (norm.normalized) {
       return { intent: 'inline_correction', targetField: 'skill', extractedValue: norm.normalized };
-    }
-  }
-
-  // 2. Check for inline experience correction
-  if (text.includes('experience') || text.includes('year') || text.includes('years') || text.includes('doing this for')) {
-    if (text === 'experience' || text === 'my experience' || text === 'the experience' || text === 'experience is wrong') {
-      return { intent: 'field_targeted', targetField: 'experience_years' };
-    }
-    const exp = normalizeExperience(speech);
-    if (exp.experience_years !== null) {
-      return { intent: 'inline_correction', targetField: 'experience_years', extractedValue: exp.experience_years };
     }
   }
 

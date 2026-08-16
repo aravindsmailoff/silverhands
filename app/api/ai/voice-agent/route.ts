@@ -1,14 +1,15 @@
 import { NextResponse } from 'next/server';
 import { ProfileState, ProfileSkill, ConversationState, AgentTurnResponse } from '@/lib/voice-agent';
-import { validateAndParseLocation } from '@/lib/location-validator';
-import {
-  normalizeName,
-  normalizeSkill,
-  normalizeSkillsList,
-  normalizeExperience,
-  isConfirmationResponse,
-  parseCorrectionIntent
+import { manageConversationTurn, calculateMissingFields } from '@/lib/conversation-manager';
+import { 
+  normalizeName, 
+  normalizeSkill, 
+  normalizeSkillsList, 
+  normalizeExperience, 
+  isConfirmationResponse, 
+  parseCorrectionIntent 
 } from '@/lib/semantic-extractor';
+import { validateAndParseLocation } from '@/lib/location-validator';
 
 const ollamaHost = process.env.OLLAMA_HOST || 'http://localhost:11434';
 const preferredOllamaModel = process.env.OLLAMA_MODEL || 'qwen3:4b';
@@ -75,77 +76,54 @@ export async function POST(req: Request) {
       });
     }
 
-    // Step 1: Call Gemini / Ollama for semantic interpretation
-    let llmResult: any = null;
-    const geminiApiKey = process.env.GEMINI_API_KEY;
+    // Step 1: Run through Jarvis-Style Conversational Manager (Gemini 2.5 Flash + Deterministic Validation)
+    const { action, updatedProfile } = await manageConversationTurn(
+      speechText,
+      candidate,
+      Array.isArray(conversation_history) ? conversation_history : [],
+      current_question || ''
+    );
 
-    if (geminiApiKey) {
-      try {
-        const prompt = buildLlmPrompt(state, current_question, confirmed_profile, candidate, speechText, activeIndex, conversation_history);
-        const geminiRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ role: 'user', parts: [{ text: prompt }] }],
-              generationConfig: { responseMimeType: 'application/json', temperature: 0.1 }
-            })
-          }
-        );
-        if (geminiRes.ok) {
-          const gemData = await geminiRes.json();
-          const textOut = gemData.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (textOut) {
-            llmResult = JSON.parse(textOut);
-            console.log('[VoiceAgent] Gemini multi-skill semantic output:', llmResult);
-          }
-        }
-      } catch (geminiErr) {
-        console.warn('[VoiceAgent] Gemini attempt notice:', geminiErr);
-      }
+    const missingState = calculateMissingFields(updatedProfile);
+    let nextConvState: ConversationState = 'ASKING_NAME';
+    if (action.completed) {
+      nextConvState = 'COMPLETED';
+    } else if (action.next_action === 'confirm') {
+      nextConvState = 'CONFIRMING_PROFILE';
+    } else if (action.next_action === 'correct_previous_answer') {
+      nextConvState = 'CORRECTING_FIELD';
+    } else if (missingState.missing.includes('name')) {
+      nextConvState = 'ASKING_NAME';
+    } else if (missingState.missing.includes('skills')) {
+      nextConvState = 'ASKING_SKILL';
+    } else if (missingState.missing.includes('experience')) {
+      nextConvState = 'ASKING_EXPERIENCE';
+    } else if (missingState.missing.includes('location')) {
+      nextConvState = 'ASKING_LOCATION';
+    } else {
+      nextConvState = 'CONFIRMING_PROFILE';
     }
 
-    if (!llmResult) {
-      const prompt = buildLlmPrompt(state, current_question, confirmed_profile, candidate, speechText, activeIndex, conversation_history);
-      for (const modelCandidate of OLLAMA_MODELS_TO_TRY) {
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 2000);
-
-          const ollamaRes = await fetch(`${ollamaHost}/api/generate`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            signal: controller.signal,
-            body: JSON.stringify({
-              model: modelCandidate,
-              prompt,
-              stream: false,
-              format: 'json',
-              options: { num_predict: 250, temperature: 0.1 }
-            })
-          });
-          clearTimeout(timeoutId);
-
-          if (ollamaRes.ok) {
-            const ollamaData = await ollamaRes.json();
-            const jsonMatch = (ollamaData.response || '').match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-              llmResult = JSON.parse(jsonMatch[0]);
-              console.log(`[VoiceAgent] Extracted via Ollama (${modelCandidate}):`, llmResult);
-              break;
-            }
-          }
-        } catch (_) {}
-      }
-    }
-
-    // Step 2: Pass through Authoritative Stateful Conversation Engine with multi-skill question queue
-    const turn: AgentTurnResponse = processStatefulTurn(state, current_question, candidate, speechText, target_field, activeIndex, llmResult);
+    const turn: AgentTurnResponse = {
+      extracted_data: {
+        name: updatedProfile.name,
+        skills: updatedProfile.skills,
+        skill: updatedProfile.skills?.[0]?.name ?? null,
+        experience_years: updatedProfile.skills?.[0]?.experience_years ?? null,
+        location: updatedProfile.location
+      },
+      next_question: action.assistant_response,
+      updated_profile: updatedProfile,
+      completed: action.completed,
+      confirmation_mode: action.next_action === 'confirm' || action.completed,
+      conversation_state: nextConvState,
+      target_field: target_field || null,
+      active_skill_index: missingState.skillIndex >= 0 ? missingState.skillIndex : 0
+    };
 
     return NextResponse.json({
       success: true,
-      provider: llmResult ? 'hybrid-llm-validated' : 'deterministic-state-engine',
+      provider: 'jarvis-conversation-manager',
       turn
     });
 
