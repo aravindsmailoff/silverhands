@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { getSavedProfile, voiceAgent } from '@/lib/voice-agent';
+import { getSavedProfile, voiceAgent, resetAllAccountsToBlank } from '@/lib/voice-agent';
 import SocialMediaHub from '@/components/SocialMediaHub';
 import { 
   ShieldCheck, Mic, Video, BookOpen, ShoppingBag, Smartphone, 
@@ -75,6 +75,7 @@ export default function DashboardPage() {
             <button
               onClick={() => {
                 if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.cancel();
+                resetAllAccountsToBlank();
                 voiceAgent.resetState();
                 router.push('/');
               }}

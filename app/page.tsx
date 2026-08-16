@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { voiceService } from '@/lib/voice';
-import { voiceAgent, ProfileState, AgentTurnResponse, INITIAL_PROFILE_STATE, getSavedProfile } from '@/lib/voice-agent';
+import { voiceAgent, ProfileState, AgentTurnResponse, INITIAL_PROFILE_STATE, getSavedProfile, resetAllAccountsToBlank } from '@/lib/voice-agent';
 import { CheckCircle2, RefreshCw, Volume2, Sparkles, ShieldCheck, UserCheck, Mic, ArrowRight, LogOut, LogIn, UserPlus } from 'lucide-react';
 
 import SignInModal from '@/components/SignInModal';
@@ -40,12 +40,13 @@ export default function VoiceConversationalApp() {
     };
   }, []);
 
-  // Logout action
+  // Logout action - completely resets browser storage to blank
   const handleLogout = () => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
     voiceService.stopListening();
+    resetAllAccountsToBlank();
     voiceAgent.resetState();
     setProfileState({ ...INITIAL_PROFILE_STATE });
     setIsLoggedIn(false);

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { getSavedProfile, ProfileState, voiceAgent } from '@/lib/voice-agent';
+import { getSavedProfile, ProfileState, voiceAgent, resetAllAccountsToBlank } from '@/lib/voice-agent';
 import { 
   ShieldCheck, Mic, CheckCircle2, Star, MapPin, Languages, 
   ChefHat, Award, ArrowRight, Edit3, ArrowLeft, LogOut 
@@ -106,6 +106,8 @@ export default function ProfilePage() {
             <button
               onClick={() => {
                 if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.cancel();
+                resetAllAccountsToBlank();
+                voiceAgent.resetState();
                 router.push('/');
               }}
               className="flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-sm font-bold transition shadow-sm"
