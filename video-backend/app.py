@@ -11,6 +11,10 @@ import asyncio
 import urllib.parse
 import urllib.request
 from dotenv import load_dotenv
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -175,6 +179,26 @@ def _update_job_progress(job, line_str):
     job['current_step'] = step
 
 
+def sync_run_job(job_id, cmd, env):
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env=env,
+        text=True,
+        encoding='utf-8',
+        errors='replace',
+        bufsize=1
+    )
+    for line in process.stdout:
+        line_str = line.strip()
+        if line_str:
+            jobs[job_id]['logs'].append(line_str)
+            _update_job_progress(jobs[job_id], line_str)
+            print(f"[{job_id}] ({jobs[job_id]['progress']}%) {line_str}")
+    process.wait()
+    return process.returncode
+
 async def run_job(job_id, job_info):
     cmd = job_info['cmd']
     env = job_info['env']
@@ -187,25 +211,8 @@ async def run_job(job_id, job_info):
     jobs[job_id]['logs'].append(f"Starting job {job_id}...")
     
     try:
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            env=env
-        )
-        
-        # Read logs asynchronously and update progress
-        while True:
-            line = await process.stdout.readline()
-            if not line:
-                break
-            line_str = line.decode('utf-8', errors='replace').strip()
-            if line_str:
-                jobs[job_id]['logs'].append(line_str)
-                _update_job_progress(jobs[job_id], line_str)
-                print(f"[{job_id}] ({jobs[job_id]['progress']}%) {line_str}")
-                
-        returncode = await process.wait()
+        loop = asyncio.get_event_loop()
+        returncode = await loop.run_in_executor(None, sync_run_job, job_id, cmd, env)
         
         if returncode == 0:
             jobs[job_id]['status'] = 'completed'
@@ -242,8 +249,9 @@ async def run_job(job_id, job_info):
             jobs[job_id]['logs'].append(f"Process failed with exit code {returncode}")
             
     except Exception as e:
+        import traceback
         jobs[job_id]['status'] = 'failed'
-        jobs[job_id]['logs'].append(f"Internal Error: {str(e)}")
+        jobs[job_id]['logs'].append(f"Internal Error: {repr(e)}\n{traceback.format_exc()}")
     finally:
         concurrency_semaphore.release()
         job_queue.task_done()
