@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --primary: #031635;
+    --primary-container: #1a2b4b;
+    --on-primary: #ffffff;
+    --secondary: #7a5900;
+    --secondary-container: #fdbc13;
+    --on-secondary-container: #6b4d00;
+    --surface: #faf9f6;
+    --surface-container: #efeeeb;
+    --surface-container-low: #f4f3f1;
+    --surface-container-high: #e9e8e5;
+    --surface-variant: #e3e2e0;
+    --on-surface: #1a1c1a;
+    --on-surface-variant: #44474e;
+    --verified-green: #2D5A27;
+  }
+}
+
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(253, 188, 19, 0.7); }
+  70% { box-shadow: 0 0 0 20px rgba(253, 188, 19, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(253, 188, 19, 0); }
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.15); }
+}
+
+.pulse-ring {
+  animation: pulse-ring 2s infinite;
+}
+
+.voice-pulse {
+  animation: pulse-ring 2s infinite;
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.shadow-soft {
+  box-shadow: 0 4px 12px rgba(26, 43, 75, 0.08);
+}
+
+.btn-press:active {
+  box-shadow: none;
+  transform: translateY(2px);
+}

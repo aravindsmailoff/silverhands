@@ -1,0 +1,21 @@
+{
+  "name": "SilverHands - Voice-First Elder Skill & Product Marketplace",
+  "short_name": "SilverHands",
+  "description": "Empowering seniors and homemakers in India through voice-enabled listings with Guardian verification",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b0e14",
+  "theme_color": "#6366f1",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

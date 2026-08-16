@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Create My Video - Sahayak</title>
+<!-- Google Fonts: Lexend -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Configuration from Design System -->
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary-container": "#1a2b4b",
+                        "surface-dim": "#dbdad7",
+                        "on-primary": "#ffffff",
+                        "secondary-container": "#fdbc13",
+                        "surface-container-high": "#e9e8e5",
+                        "on-tertiary-container": "#6f9f64",
+                        "primary-fixed": "#d8e2ff",
+                        "tertiary-fixed-dim": "#a1d494",
+                        "on-surface-variant": "#44474e",
+                        "inverse-on-surface": "#f2f1ee",
+                        "on-error": "#ffffff",
+                        "on-tertiary-fixed": "#002201",
+                        "surface": "#faf9f6",
+                        "outline": "#75777f",
+                        "outline-variant": "#c5c6cf",
+                        "background": "#faf9f6",
+                        "on-secondary-fixed": "#261900",
+                        "on-background": "#1a1c1a",
+                        "on-primary-fixed-variant": "#364768",
+                        "inverse-surface": "#2f312f",
+                        "on-primary-container": "#8293b8",
+                        "surface-container": "#efeeeb",
+                        "surface-container-highest": "#e3e2e0",
+                        "tertiary": "#001d01",
+                        "tertiary-container": "#053405",
+                        "on-error-container": "#93000a",
+                        "error-container": "#ffdad6",
+                        "on-secondary-fixed-variant": "#5d4200",
+                        "surface-tint": "#4e5e81",
+                        "on-tertiary": "#ffffff",
+                        "inverse-primary": "#b6c6ef",
+                        "on-secondary-container": "#6b4d00",
+                        "secondary-fixed-dim": "#fdbc13",
+                        "secondary-fixed": "#ffdea3",
+                        "on-secondary": "#ffffff",
+                        "tertiary-fixed": "#bcf0ae",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-variant": "#e3e2e0",
+                        "on-surface": "#1a1c1a",
+                        "on-tertiary-fixed-variant": "#23501e",
+                        "primary": "#031635",
+                        "surface-container-low": "#f4f3f1",
+                        "error": "#ba1a1a",
+                        "primary-fixed-dim": "#b6c6ef",
+                        "secondary": "#7a5900",
+                        "surface-bright": "#faf9f6",
+                        "on-primary-fixed": "#081b3a"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    spacing: {
+                        "stack-md": "24px",
+                        "stack-sm": "12px",
+                        "touch-target-min": "56px",
+                        "gutter": "20px",
+                        "margin-desktop": "40px",
+                        "margin-mobile": "20px",
+                        "stack-lg": "48px"
+                    },
+                    fontFamily: {
+                        "body-lg": ["Lexend"],
+                        "headline-xl": ["Lexend"],
+                        "headline-lg": ["Lexend"],
+                        "headline-md": ["Lexend"],
+                        "headline-xl-mobile": ["Lexend"],
+                        "body-md": ["Lexend"],
+                        "headline-lg-mobile": ["Lexend"],
+                        "label-lg": ["Lexend"]
+                    },
+                    fontSize: {
+                        "body-lg": ["20px", { "lineHeight": "32px", "fontWeight": "400" }],
+                        "headline-xl": ["40px", { "lineHeight": "52px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "fontWeight": "600" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                        "headline-xl-mobile": ["32px", { "lineHeight": "40px", "fontWeight": "700" }],
+                        "body-md": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "headline-lg-mobile": ["28px", { "lineHeight": "36px", "fontWeight": "600" }],
+                        "label-lg": ["18px", { "lineHeight": "24px", "letterSpacing": "0.01em", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        /* Custom Animations for Voice UI */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.8; }
+            100% { transform: scale(2.0); opacity: 0; }
+        }
+        .animate-pulse-ring {
+            animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface font-body-lg text-body-lg antialiased min-h-screen flex flex-col selection:bg-secondary-container selection:text-on-secondary-container">
+<!-- TopAppBar (From Shared Components JSON) -->
+<header class="fixed top-0 w-full z-50 bg-surface dark:bg-surface-dim border-b-2 border-surface-variant flex items-center justify-between px-margin-mobile md:px-margin-desktop h-[80px] max-w-screen-xl mx-auto shadow-sm">
+<button aria-label="Menu" class="h-touch-target-min w-touch-target-min flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-colors active:scale-95 duration-100 rounded-full">
+<span class="material-symbols-outlined text-[32px]">menu</span>
+</button>
+<h1 class="font-headline-xl-mobile text-headline-xl-mobile md:font-headline-lg md:text-headline-lg text-primary dark:text-primary-fixed tracking-tight">Sahayak</h1>
+<button aria-label="Voice Search" class="h-touch-target-min w-touch-target-min flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-colors active:scale-95 duration-100 rounded-full">
+<span class="material-symbols-outlined text-[32px]">mic</span>
+</button>
+</header>
+<!-- Main Content Canvas -->
+<!-- Suppressed Nav Shells as this is a focused linear task ("Create My Video" intro) -->
+<main class="flex-grow flex flex-col max-w-[800px] w-full mx-auto px-margin-mobile md:px-margin-desktop pt-[104px] pb-stack-lg gap-stack-lg">
+<!-- Large Text Prompt -->
+<section class="text-center mt-stack-md">
+<h2 class="font-headline-xl-mobile text-headline-xl-mobile md:font-headline-xl md:text-headline-xl text-primary">
+                What would you like to show today?
+            </h2>
+</section>
+<!-- AI Explanation Card (Bento/Glass style hint but flat tactile implementation per guidelines) -->
+<section class="bg-surface-container-lowest border-2 border-outline-variant rounded-xl p-stack-md flex items-start gap-stack-sm shadow-[0_4px_12px_rgba(26,43,75,0.08)] relative overflow-hidden">
+<!-- Decorative accent line -->
+<div class="absolute left-0 top-0 bottom-0 w-2 bg-secondary-container rounded-l-xl"></div>
+<div class="flex-shrink-0 mt-1 pl-2">
+<span class="material-symbols-outlined text-[40px] text-primary" style="font-variation-settings: 'FILL' 1;">support_agent</span>
+</div>
+<div class="flex flex-col">
+<p class="font-body-lg text-body-lg text-on-surface">
+                    I will help you create a video. You only need to demonstrate what you know.
+                </p>
+</div>
+</section>
+<!-- Live Voice Transcription Area -->
+<section class="flex-grow flex flex-col justify-center items-center gap-stack-md my-stack-md relative">
+<!-- Voice Activity Indicator -->
+<div class="relative flex items-center justify-center w-32 h-32">
+<!-- Pulsing Outer Ring -->
+<div class="absolute inset-0 bg-secondary-container rounded-full animate-pulse-ring"></div>
+<!-- Inner Mic Container -->
+<div class="relative z-10 w-20 h-20 bg-secondary-container rounded-full flex items-center justify-center shadow-md border-2 border-surface-container-lowest">
+<span class="material-symbols-outlined text-[48px] text-on-secondary-container" style="font-variation-settings: 'FILL' 1;">mic</span>
+</div>
+</div>
+<!-- Transcription Output Card -->
+<div class="w-full bg-surface-container-lowest border-2 border-secondary-container rounded-2xl p-stack-md shadow-[0_8px_24px_rgba(26,43,75,0.12)] flex flex-col items-center text-center relative overflow-hidden">
+<!-- Listening Status -->
+<div class="absolute top-4 left-0 w-full flex justify-center items-center gap-2 text-on-surface-variant font-label-lg text-label-lg uppercase tracking-widest opacity-80">
+<span class="material-symbols-outlined text-[20px] animate-pulse">graphic_eq</span>
+<span>Listening</span>
+</div>
+<div class="mt-8">
+<span class="font-body-md text-body-md text-on-surface-variant block mb-2">Video Topic:</span>
+<h3 class="font-headline-lg-mobile text-headline-lg-mobile md:font-headline-lg md:text-headline-lg text-primary">
+                        "How to Make Traditional Murukku"
+                    </h3>
+</div>
+</div>
+</section>
+<!-- Massive Action Button -->
+<section class="mt-auto pt-stack-sm pb-stack-sm w-full">
+<button class="w-full min-h-[80px] bg-primary text-on-primary font-headline-xl-mobile text-headline-xl-mobile md:font-headline-lg md:text-headline-lg rounded-xl flex items-center justify-center gap-4 shadow-[0_4px_12px_rgba(26,43,75,0.08)] hover:bg-primary-fixed-variant hover:text-white transition-all active:scale-[0.98] active:shadow-none active:border-2 active:border-primary-fixed px-6 py-4 group">
+<span class="material-symbols-outlined text-[40px] group-hover:scale-110 transition-transform" style="font-variation-settings: 'FILL' 1;">videocam</span>
+                Start Recording
+            </button>
+</section>
+</main>
+</body></html>

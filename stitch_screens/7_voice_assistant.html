@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Voice Assistant - Sahayak</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "primary-container": "#1a2b4b",
+                      "surface-dim": "#dbdad7",
+                      "on-primary": "#ffffff",
+                      "secondary-container": "#fdbc13",
+                      "surface-container-high": "#e9e8e5",
+                      "on-tertiary-container": "#6f9f64",
+                      "primary-fixed": "#d8e2ff",
+                      "tertiary-fixed-dim": "#a1d494",
+                      "on-surface-variant": "#44474e",
+                      "inverse-on-surface": "#f2f1ee",
+                      "on-error": "#ffffff",
+                      "on-tertiary-fixed": "#002201",
+                      "surface": "#faf9f6",
+                      "outline": "#75777f",
+                      "outline-variant": "#c5c6cf",
+                      "background": "#faf9f6",
+                      "on-secondary-fixed": "#261900",
+                      "on-background": "#1a1c1a",
+                      "on-primary-fixed-variant": "#364768",
+                      "inverse-surface": "#2f312f",
+                      "on-primary-container": "#8293b8",
+                      "surface-container": "#efeeeb",
+                      "surface-container-highest": "#e3e2e0",
+                      "tertiary": "#001d01",
+                      "tertiary-container": "#053405",
+                      "on-error-container": "#93000a",
+                      "error-container": "#ffdad6",
+                      "on-secondary-fixed-variant": "#5d4200",
+                      "surface-tint": "#4e5e81",
+                      "on-tertiary": "#ffffff",
+                      "inverse-primary": "#b6c6ef",
+                      "on-secondary-container": "#6b4d00",
+                      "secondary-fixed-dim": "#fdbc13",
+                      "secondary-fixed": "#ffdea3",
+                      "on-secondary": "#ffffff",
+                      "tertiary-fixed": "#bcf0ae",
+                      "surface-container-lowest": "#ffffff",
+                      "surface-variant": "#e3e2e0",
+                      "on-surface": "#1a1c1a",
+                      "on-tertiary-fixed-variant": "#23501e",
+                      "primary": "#031635",
+                      "surface-container-low": "#f4f3f1",
+                      "error": "#ba1a1a",
+                      "primary-fixed-dim": "#b6c6ef",
+                      "secondary": "#7a5900",
+                      "surface-bright": "#faf9f6",
+                      "on-primary-fixed": "#081b3a"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "stack-md": "24px",
+                      "stack-sm": "12px",
+                      "touch-target-min": "56px",
+                      "gutter": "20px",
+                      "margin-desktop": "40px",
+                      "margin-mobile": "20px",
+                      "stack-lg": "48px"
+              },
+              "fontFamily": {
+                      "body-lg": [
+                              "Lexend"
+                      ],
+                      "headline-xl": [
+                              "Lexend"
+                      ],
+                      "headline-lg": [
+                              "Lexend"
+                      ],
+                      "headline-md": [
+                              "Lexend"
+                      ],
+                      "headline-xl-mobile": [
+                              "Lexend"
+                      ],
+                      "body-md": [
+                              "Lexend"
+                      ],
+                      "headline-lg-mobile": [
+                              "Lexend"
+                      ],
+                      "label-lg": [
+                              "Lexend"
+                      ]
+              },
+              "fontSize": {
+                      "body-lg": [
+                              "20px",
+                              {
+                                      "lineHeight": "32px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-xl": [
+                              "40px",
+                              {
+                                      "lineHeight": "52px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "headline-lg": [
+                              "32px",
+                              {
+                                      "lineHeight": "40px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-md": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-xl-mobile": [
+                              "32px",
+                              {
+                                      "lineHeight": "40px",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "body-md": [
+                              "18px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-lg-mobile": [
+                              "28px",
+                              {
+                                      "lineHeight": "36px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "label-lg": [
+                              "18px",
+                              {
+                                      "lineHeight": "24px",
+                                      "letterSpacing": "0.01em",
+                                      "fontWeight": "600"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+      </script>
+<style>
+        .pulse-ring {
+            animation: pulse 2s infinite cubic-bezier(0.4, 0, 0.6, 1);
+        }
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+                opacity: 0.8;
+                box-shadow: 0 0 0 0 rgba(244, 180, 0, 0.7);
+            }
+            70% {
+                transform: scale(1.1);
+                opacity: 0;
+                box-shadow: 0 0 0 30px rgba(244, 180, 0, 0);
+            }
+            100% {
+                transform: scale(1);
+                opacity: 0;
+                box-shadow: 0 0 0 0 rgba(244, 180, 0, 0);
+            }
+        }
+        
+        /* Sink effect for interactive elements */
+        .sink-on-active:active {
+            box-shadow: none !important;
+            border: 1px solid #c5c6cf; /* outline-variant */
+            transform: translateY(2px);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-background min-h-screen flex flex-col items-center justify-between font-body-lg overflow-hidden">
+<!-- Top Navigation (Task-focused page -> Suppress main nav, provide back button) -->
+<header class="w-full max-w-[800px] flex items-center justify-between px-margin-mobile md:px-margin-desktop py-stack-sm z-50 mt-4">
+<button aria-label="Go Back" class="flex items-center gap-2 h-touch-target-min px-4 rounded-xl bg-surface border-2 border-surface-variant shadow-[0_4px_12px_rgba(26,43,75,0.08)] sink-on-active transition-all">
+<span class="material-symbols-outlined text-primary text-[32px]">arrow_back</span>
+<span class="font-headline-md text-headline-md text-primary pr-2">Back</span>
+</button>
+<div class="font-headline-md text-headline-md text-primary opacity-50">Sahayak</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-grow flex flex-col items-center justify-center w-full max-w-[800px] px-margin-mobile md:px-margin-desktop gap-stack-lg z-10 relative">
+<!-- Center Microphone Status -->
+<div class="flex flex-col items-center justify-center gap-stack-md relative h-[250px] w-full mt-8">
+<div class="relative flex items-center justify-center w-[160px] h-[160px]">
+<!-- Pulse rings -->
+<div class="absolute inset-0 rounded-full bg-secondary-fixed border-[4px] border-secondary-container pulse-ring opacity-50"></div>
+<div class="absolute inset-0 rounded-full bg-secondary-fixed border-[4px] border-secondary-container pulse-ring" style="animation-delay: -1s;"></div>
+<!-- Main Mic Button -->
+<button class="relative z-10 w-[120px] h-[120px] bg-primary text-on-primary rounded-full shadow-[0_8px_24px_rgba(26,43,75,0.2)] flex items-center justify-center transform transition-transform active:scale-95 border-[4px] border-surface">
+<span class="material-symbols-outlined text-[64px]" style="font-variation-settings: 'FILL' 1;">mic</span>
+</button>
+</div>
+<h1 aria-live="polite" class="font-headline-xl-mobile text-headline-xl-mobile md:font-headline-xl md:text-headline-xl text-primary text-center mt-4 tracking-tight">
+                Listening...
+            </h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant text-center max-w-[80%] mx-auto">
+                Speak clearly into your phone.
+            </p>
+</div>
+<!-- Suggested Commands - Senior Friendly Grid -->
+<div class="w-full flex flex-col gap-stack-sm mb-stack-lg mt-stack-md">
+<p class="font-headline-md text-headline-md text-on-surface-variant opacity-80 pl-2 mb-2">Try saying:</p>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-stack-sm w-full">
+<button class="w-full text-left bg-surface border-2 border-surface-variant shadow-[0_4px_12px_rgba(26,43,75,0.08)] rounded-xl p-stack-md flex items-center gap-4 sink-on-active transition-all min-h-touch-target-min group">
+<div class="w-[48px] h-[48px] rounded-full bg-primary-fixed flex items-center justify-center flex-shrink-0 group-hover:bg-primary-container transition-colors">
+<span class="material-symbols-outlined text-primary group-hover:text-on-primary transition-colors text-[28px]">movie</span>
+</div>
+<span class="font-headline-md text-headline-md text-on-surface flex-grow leading-tight">"Create a video"</span>
+</button>
+<button class="w-full text-left bg-surface border-2 border-surface-variant shadow-[0_4px_12px_rgba(26,43,75,0.08)] rounded-xl p-stack-md flex items-center gap-4 sink-on-active transition-all min-h-touch-target-min group">
+<div class="w-[48px] h-[48px] rounded-full bg-primary-fixed flex items-center justify-center flex-shrink-0 group-hover:bg-primary-container transition-colors">
+<span class="material-symbols-outlined text-primary group-hover:text-on-primary transition-colors text-[28px]">person</span>
+</div>
+<span class="font-headline-md text-headline-md text-on-surface flex-grow leading-tight">"Show my profile"</span>
+</button>
+<button class="w-full text-left bg-surface border-2 border-surface-variant shadow-[0_4px_12px_rgba(26,43,75,0.08)] rounded-xl p-stack-md flex items-center gap-4 sink-on-active transition-all min-h-touch-target-min group">
+<div class="w-[48px] h-[48px] rounded-full bg-primary-fixed flex items-center justify-center flex-shrink-0 group-hover:bg-primary-container transition-colors">
+<span class="material-symbols-outlined text-primary group-hover:text-on-primary transition-colors text-[28px]">visibility</span>
+</div>
+<span class="font-headline-md text-headline-md text-on-surface flex-grow leading-tight">"How many people watched my video?"</span>
+</button>
+<button class="w-full text-left bg-surface border-2 border-surface-variant shadow-[0_4px_12px_rgba(26,43,75,0.08)] rounded-xl p-stack-md flex items-center gap-4 sink-on-active transition-all min-h-touch-target-min group">
+<div class="w-[48px] h-[48px] rounded-full bg-primary-fixed flex items-center justify-center flex-shrink-0 group-hover:bg-primary-container transition-colors">
+<span class="material-symbols-outlined text-primary group-hover:text-on-primary transition-colors text-[28px]">add_a_photo</span>
+</div>
+<span class="font-headline-md text-headline-md text-on-surface flex-grow leading-tight">"Change my profile picture"</span>
+</button>
+</div>
+</div>
+</main>
+<!-- Subtle Background Pattern for Depth (Not an image, CSS based) -->
+<div class="fixed inset-0 pointer-events-none z-0 opacity-[0.03]" style="background-image: radial-gradient(#1a2b4b 2px, transparent 2px); background-size: 32px 32px;"></div>
+</body></html>

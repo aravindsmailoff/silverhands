@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Profile Preview - Lakshmi Amma</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "primary-container": "#1a2b4b",
+                      "surface-dim": "#dbdad7",
+                      "on-primary": "#ffffff",
+                      "secondary-container": "#fdbc13",
+                      "surface-container-high": "#e9e8e5",
+                      "on-tertiary-container": "#6f9f64",
+                      "primary-fixed": "#d8e2ff",
+                      "tertiary-fixed-dim": "#a1d494",
+                      "on-surface-variant": "#44474e",
+                      "inverse-on-surface": "#f2f1ee",
+                      "on-error": "#ffffff",
+                      "on-tertiary-fixed": "#002201",
+                      "surface": "#faf9f6",
+                      "outline": "#75777f",
+                      "outline-variant": "#c5c6cf",
+                      "background": "#faf9f6",
+                      "on-secondary-fixed": "#261900",
+                      "on-background": "#1a1c1a",
+                      "on-primary-fixed-variant": "#364768",
+                      "inverse-surface": "#2f312f",
+                      "on-primary-container": "#8293b8",
+                      "surface-container": "#efeeeb",
+                      "surface-container-highest": "#e3e2e0",
+                      "tertiary": "#001d01",
+                      "tertiary-container": "#053405",
+                      "on-error-container": "#93000a",
+                      "error-container": "#ffdad6",
+                      "on-secondary-fixed-variant": "#5d4200",
+                      "surface-tint": "#4e5e81",
+                      "on-tertiary": "#ffffff",
+                      "inverse-primary": "#b6c6ef",
+                      "on-secondary-container": "#6b4d00",
+                      "secondary-fixed-dim": "#fdbc13",
+                      "secondary-fixed": "#ffdea3",
+                      "on-secondary": "#ffffff",
+                      "tertiary-fixed": "#bcf0ae",
+                      "surface-container-lowest": "#ffffff",
+                      "surface-variant": "#e3e2e0",
+                      "on-surface": "#1a1c1a",
+                      "on-tertiary-fixed-variant": "#23501e",
+                      "primary": "#031635",
+                      "surface-container-low": "#f4f3f1",
+                      "error": "#ba1a1a",
+                      "primary-fixed-dim": "#b6c6ef",
+                      "secondary": "#7a5900",
+                      "surface-bright": "#faf9f6",
+                      "on-primary-fixed": "#081b3a"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "stack-md": "24px",
+                      "stack-sm": "12px",
+                      "touch-target-min": "56px",
+                      "gutter": "20px",
+                      "margin-desktop": "40px",
+                      "margin-mobile": "20px",
+                      "stack-lg": "48px"
+              },
+              "fontFamily": {
+                      "body-lg": ["Lexend"],
+                      "headline-xl": ["Lexend"],
+                      "headline-lg": ["Lexend"],
+                      "headline-md": ["Lexend"],
+                      "headline-xl-mobile": ["Lexend"],
+                      "body-md": ["Lexend"],
+                      "headline-lg-mobile": ["Lexend"],
+                      "label-lg": ["Lexend"]
+              },
+              "fontSize": {
+                      "body-lg": ["20px", {"lineHeight": "32px", "fontWeight": "400"}],
+                      "headline-xl": ["40px", {"lineHeight": "52px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                      "headline-lg": ["32px", {"lineHeight": "40px", "fontWeight": "600"}],
+                      "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                      "headline-xl-mobile": ["32px", {"lineHeight": "40px", "fontWeight": "700"}],
+                      "body-md": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                      "headline-lg-mobile": ["28px", {"lineHeight": "36px", "fontWeight": "600"}],
+                      "label-lg": ["18px", {"lineHeight": "24px", "letterSpacing": "0.01em", "fontWeight": "600"}]
+              }
+            },
+          },
+        }
+    </script>
+<style>
+        .shadow-soft {
+            box-shadow: 0 4px 12px rgba(26,43,75,0.08);
+        }
+        .btn-press:active {
+            box-shadow: none;
+            border: 1px solid #1a2b4b;
+            transform: translateY(2px);
+        }
+        .voice-pulse {
+            animation: pulse-ring 2s infinite;
+        }
+        @keyframes pulse-ring {
+            0% { box-shadow: 0 0 0 0 rgba(253, 188, 19, 0.7); }
+            70% { box-shadow: 0 0 0 20px rgba(253, 188, 19, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(253, 188, 19, 0); }
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface font-body-lg min-h-screen flex flex-col pb-32">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-surface dark:bg-surface-dim border-b-2 border-surface-variant h-touch-target-min">
+<div class="flex items-center justify-between px-margin-mobile md:px-margin-desktop h-full w-full max-w-screen-xl mx-auto">
+<button aria-label="Menu" class="flex items-center justify-center w-touch-target-min h-touch-target-min hover:bg-surface-container-high transition-colors active:scale-95 duration-100 rounded-full">
+<span class="material-symbols-outlined text-primary dark:text-primary-fixed" style="font-size: 32px;">menu</span>
+</button>
+<h1 class="font-headline-xl-mobile text-headline-xl-mobile text-primary dark:text-primary-fixed tracking-tight">Sahayak</h1>
+<button aria-label="Voice Search" class="flex items-center justify-center w-touch-target-min h-touch-target-min hover:bg-surface-container-high transition-colors active:scale-95 duration-100 rounded-full">
+<span class="material-symbols-outlined text-primary dark:text-primary-fixed" style="font-size: 32px;">mic</span>
+</button>
+</div>
+</header>
+<!-- Main Content -->
+<main class="flex-grow pt-24 px-margin-mobile md:px-margin-desktop max-w-[800px] mx-auto w-full flex flex-col gap-stack-md pb-stack-lg">
+<h2 class="font-headline-lg-mobile md:font-headline-lg text-headline-lg-mobile md:text-headline-lg text-primary text-center mt-stack-md">Your Profile Preview</h2>
+<!-- Profile Card -->
+<article class="bg-surface-container-lowest border-2 border-surface-variant rounded-xl p-stack-md shadow-soft flex flex-col items-center gap-stack-md">
+<div class="w-32 h-32 rounded-full overflow-hidden border-4 border-surface-variant shrink-0">
+<img alt="Lakshmi Amma Profile Photo" class="w-full h-full object-cover" data-alt="A dignified portrait of a senior Indian woman, Lakshmi Amma, with a warm smile, wearing a traditional silk saree. Soft, natural lighting highlights her experienced features. The background is a slightly blurred, warm-toned traditional kitchen setting, conveying a sense of heritage and culinary expertise. High-contrast, bright photography style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB7aLPVMrtlmj79hd4KxqqL6qM9iPWmOMyzUQ2-cOVD7siYF2fn4dmcL0CJPLvGhaIDPB71TF-NlLzL3BYFLlACdjtDAi066jbxcjXlZWQm0XETFhFtWo_igzNuMRjsWSW-tAdXjdIKv4Z7geh7rc5j5nl8QEE6fzEK5iFjGwqrlAd4ZUYboabHIdEte4IO5HLl4zZaJWTJcJvbXeN2j_6OzkJL9VtXLTkohI2wD6Y00ykrSejpXH1d"/>
+</div>
+<div class="text-center">
+<h3 class="font-headline-xl-mobile text-headline-xl-mobile text-primary">Lakshmi Amma</h3>
+<div class="flex items-center justify-center gap-2 mt-2">
+<span class="bg-[#2D5A27] text-on-primary font-label-lg text-label-lg px-4 py-2 rounded-full flex items-center gap-2">
+<span class="material-symbols-outlined" style="font-size: 24px; font-variation-settings: 'FILL' 1;">check_circle</span>
+                        Guardian Verified
+                    </span>
+</div>
+</div>
+<div class="w-full h-0.5 bg-surface-variant my-stack-sm"></div>
+<ul class="w-full flex flex-col gap-stack-sm font-headline-md text-headline-md text-on-surface">
+<li class="flex items-center gap-4 bg-surface-container-low p-4 rounded-lg">
+<span class="material-symbols-outlined text-primary" style="font-size: 32px;">soup_kitchen</span>
+<span>Traditional Tamil Cooking</span>
+</li>
+<li class="flex items-center gap-4 bg-surface-container-low p-4 rounded-lg">
+<span class="material-symbols-outlined text-secondary-container" style="font-size: 32px; font-variation-settings: 'FILL' 1;">star</span>
+<span>30+ Years Experience</span>
+</li>
+<li class="flex items-center gap-4 bg-surface-container-low p-4 rounded-lg">
+<span class="material-symbols-outlined text-primary" style="font-size: 32px;">location_on</span>
+<span>Chennai</span>
+</li>
+<li class="flex items-center gap-4 bg-surface-container-low p-4 rounded-lg">
+<span class="material-symbols-outlined text-primary" style="font-size: 32px;">chat</span>
+<span>Tamil</span>
+</li>
+</ul>
+<div class="w-full bg-primary-fixed-dim/20 p-stack-sm rounded-lg mt-stack-sm">
+<h4 class="font-headline-md text-headline-md text-primary mb-2">Available For:</h4>
+<div class="flex flex-wrap gap-3 font-body-md text-body-md text-on-surface">
+<span class="bg-surface-container py-2 px-4 rounded-full border border-surface-variant">Online Classes</span>
+<span class="bg-surface-container py-2 px-4 rounded-full border border-surface-variant">Video Lessons</span>
+<span class="bg-surface-container py-2 px-4 rounded-full border border-surface-variant">Homemade Products</span>
+</div>
+</div>
+</article>
+<!-- Actions -->
+<div class="flex flex-col gap-stack-md mt-stack-sm">
+<button class="w-full h-[80px] bg-secondary-container text-on-secondary-fixed font-headline-md text-headline-md rounded-xl flex items-center justify-center gap-4 btn-press shadow-soft voice-pulse border-2 border-secondary">
+<span class="material-symbols-outlined" style="font-size: 40px; font-variation-settings: 'FILL' 1;">mic</span>
+                Edit My Profile Using Voice
+            </button>
+<div class="flex flex-col md:flex-row gap-stack-sm w-full">
+<button class="w-full md:w-1/2 h-[60px] bg-primary text-on-primary font-headline-md text-headline-md rounded-lg flex items-center justify-center gap-2 btn-press shadow-soft">
+<span class="material-symbols-outlined" style="font-size: 32px;">thumb_up</span>
+                    Looks Good
+                </button>
+<button class="w-full md:w-1/2 h-[60px] bg-surface text-primary border-2 border-primary font-headline-md text-headline-md rounded-lg flex items-center justify-center gap-2 btn-press shadow-soft">
+<span class="material-symbols-outlined" style="font-size: 32px;">edit</span>
+                    Change Something
+                </button>
+</div>
+</div>
+</main>
+<!-- BottomNavBar (Semantic match: Profile) -->
+<nav class="fixed bottom-0 w-full z-50 h-[80px] bg-surface dark:bg-surface-container-low border-t-2 border-surface-variant shadow-[0_-4px_12px_rgba(26,43,75,0.08)] md:hidden">
+<div class="flex justify-around items-center w-full max-w-screen-xl mx-auto px-gutter h-full">
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:text-primary transition-all active:scale-90 duration-150 w-touch-target-min h-touch-target-min">
+<span class="material-symbols-outlined" style="font-size: 32px;">home</span>
+<span class="font-label-lg text-label-lg">Home</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:text-primary transition-all active:scale-90 duration-150 w-touch-target-min h-touch-target-min">
+<span class="material-symbols-outlined" style="font-size: 32px;">search</span>
+<span class="font-label-lg text-label-lg">Search</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:text-primary transition-all active:scale-90 duration-150 w-touch-target-min h-touch-target-min">
+<span class="material-symbols-outlined" style="font-size: 32px;">work</span>
+<span class="font-label-lg text-label-lg">My Work</span>
+</button>
+<button class="flex flex-col items-center justify-center bg-secondary-container text-on-secondary-container rounded-full px-6 py-1 active:scale-90 duration-150 w-auto h-auto min-h-[56px] min-w-[56px]">
+<span class="material-symbols-outlined" style="font-size: 32px; font-variation-settings: 'FILL' 1;">person</span>
+<span class="font-label-lg text-label-lg font-bold">Profile</span>
+</button>
+</div>
+</nav>
+</body></html>

@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Welcome to SilverHands</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary-container": "#1a2b4b",
+                        "surface-dim": "#dbdad7",
+                        "on-primary": "#ffffff",
+                        "secondary-container": "#fdbc13",
+                        "surface-container-high": "#e9e8e5",
+                        "on-tertiary-container": "#6f9f64",
+                        "primary-fixed": "#d8e2ff",
+                        "tertiary-fixed-dim": "#a1d494",
+                        "on-surface-variant": "#44474e",
+                        "inverse-on-surface": "#f2f1ee",
+                        "on-error": "#ffffff",
+                        "on-tertiary-fixed": "#002201",
+                        "surface": "#faf9f6",
+                        "outline": "#75777f",
+                        "outline-variant": "#c5c6cf",
+                        "background": "#faf9f6",
+                        "on-secondary-fixed": "#261900",
+                        "on-background": "#1a1c1a",
+                        "on-primary-fixed-variant": "#364768",
+                        "inverse-surface": "#2f312f",
+                        "on-primary-container": "#8293b8",
+                        "surface-container": "#efeeeb",
+                        "surface-container-highest": "#e3e2e0",
+                        "tertiary": "#001d01",
+                        "tertiary-container": "#053405",
+                        "on-error-container": "#93000a",
+                        "error-container": "#ffdad6",
+                        "on-secondary-fixed-variant": "#5d4200",
+                        "surface-tint": "#4e5e81",
+                        "on-tertiary": "#ffffff",
+                        "inverse-primary": "#b6c6ef",
+                        "on-secondary-container": "#6b4d00",
+                        "secondary-fixed-dim": "#fdbc13",
+                        "secondary-fixed": "#ffdea3",
+                        "on-secondary": "#ffffff",
+                        "tertiary-fixed": "#bcf0ae",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-variant": "#e3e2e0",
+                        "on-surface": "#1a1c1a",
+                        "on-tertiary-fixed-variant": "#23501e",
+                        "primary": "#031635",
+                        "surface-container-low": "#f4f3f1",
+                        "error": "#ba1a1a",
+                        "primary-fixed-dim": "#b6c6ef",
+                        "secondary": "#7a5900",
+                        "surface-bright": "#faf9f6",
+                        "on-primary-fixed": "#081b3a"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "stack-md": "24px",
+                        "stack-sm": "12px",
+                        "touch-target-min": "56px",
+                        "gutter": "20px",
+                        "margin-desktop": "40px",
+                        "margin-mobile": "20px",
+                        "stack-lg": "48px"
+                    },
+                    "fontFamily": {
+                        "body-lg": ["Lexend"],
+                        "headline-xl": ["Lexend"],
+                        "headline-lg": ["Lexend"],
+                        "headline-md": ["Lexend"],
+                        "headline-xl-mobile": ["Lexend"],
+                        "body-md": ["Lexend"],
+                        "headline-lg-mobile": ["Lexend"],
+                        "label-lg": ["Lexend"]
+                    },
+                    "fontSize": {
+                        "body-lg": ["20px", {"lineHeight": "32px", "fontWeight": "400"}],
+                        "headline-xl": ["40px", {"lineHeight": "52px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "fontWeight": "600"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                        "headline-xl-mobile": ["32px", {"lineHeight": "40px", "fontWeight": "700"}],
+                        "body-md": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                        "headline-lg-mobile": ["28px", {"lineHeight": "36px", "fontWeight": "600"}],
+                        "label-lg": ["18px", {"lineHeight": "24px", "letterSpacing": "0.01em", "fontWeight": "600"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-background min-h-screen flex flex-col font-body-lg text-body-lg">
+<!-- Top Navigation (Reduced for Welcome Screen intent) -->
+<header class="fixed top-0 w-full z-50 bg-surface dark:bg-surface-dim border-b-2 border-surface-variant h-touch-target-min">
+<div class="flex items-center justify-between px-margin-mobile md:px-margin-desktop h-full w-full max-w-[800px] mx-auto">
+<button aria-label="Go Back" class="flex items-center justify-center h-touch-target-min w-touch-target-min rounded-full hover:bg-surface-container-high transition-colors active:scale-95 duration-100 text-primary dark:text-primary-fixed">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">arrow_back</span>
+</button>
+<div class="font-headline-xl-mobile text-headline-xl-mobile text-primary dark:text-primary-fixed tracking-tight">SilverHands</div>
+<button aria-label="Help" class="flex items-center justify-center h-touch-target-min w-touch-target-min rounded-full hover:bg-surface-container-high transition-colors active:scale-95 duration-100 text-primary dark:text-primary-fixed">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">help</span>
+</button>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-grow flex flex-col items-center justify-center pt-[calc(var(--touch-target-min)+2rem)] pb-stack-lg px-margin-mobile md:px-margin-desktop max-w-[800px] mx-auto w-full gap-stack-lg">
+<!-- Hero Section -->
+<div class="text-center flex flex-col gap-stack-sm w-full">
+<div class="w-24 h-24 mx-auto mb-4 bg-primary-container rounded-full flex items-center justify-center shadow-[0_4px_12px_rgba(26,43,75,0.08)]">
+<span class="material-symbols-outlined text-[48px] text-on-primary" style="font-variation-settings: 'FILL' 1;">handshake</span>
+</div>
+<h1 class="font-headline-xl-mobile text-headline-xl-mobile md:font-headline-xl md:text-headline-xl text-primary mb-2">Welcome to SilverHands</h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant max-w-[600px] mx-auto">Share your skills. Teach others. Earn from what you know.</p>
+</div>
+<!-- Action Buttons Grid -->
+<div class="w-full flex flex-col gap-stack-md mt-4">
+<!-- Primary Action: Start With Voice -->
+<button class="group relative w-full h-[80px] bg-primary text-on-primary rounded-xl flex items-center justify-center gap-4 shadow-[0_4px_12px_rgba(26,43,75,0.08)] active:shadow-none active:border active:border-outline-variant hover:bg-opacity-95 transition-all">
+<div class="absolute inset-0 rounded-xl ring-2 ring-secondary-container ring-offset-2 ring-offset-background animate-pulse opacity-50"></div>
+<span class="material-symbols-outlined text-[32px] text-secondary-container" style="font-variation-settings: 'FILL' 1;">mic</span>
+<span class="font-headline-md text-headline-md">Start With Voice</span>
+</button>
+<!-- Secondary Action: Login -->
+<button class="w-full h-[80px] bg-surface text-primary border-2 border-primary rounded-xl flex items-center justify-center gap-4 shadow-[0_4px_12px_rgba(26,43,75,0.08)] active:shadow-none active:bg-surface-container hover:bg-surface-container-low transition-all">
+<span class="material-symbols-outlined text-[32px]" style="font-variation-settings: 'FILL' 1;">person</span>
+<span class="font-headline-md text-headline-md">I Already Have an Account</span>
+</button>
+<!-- Tertiary Action: Audio Readout -->
+<button class="w-full h-[80px] bg-secondary-container text-on-secondary-container rounded-xl flex items-center justify-center gap-4 shadow-[0_4px_12px_rgba(26,43,75,0.08)] active:shadow-none active:border active:border-on-secondary-container hover:bg-secondary-fixed-dim transition-all">
+<span class="material-symbols-outlined text-[32px]" style="font-variation-settings: 'FILL' 1;">volume_up</span>
+<span class="font-headline-md text-headline-md">Listen to this screen</span>
+</button>
+</div>
+<!-- Trust Badge -->
+<div class="mt-8 flex items-center justify-center gap-2 bg-[#FAF9F6] border-2 border-[#E2E5E9] rounded-full px-6 py-3 shadow-[0_4px_12px_rgba(26,43,75,0.08)]">
+<span class="material-symbols-outlined text-[#2D5A27]" style="font-variation-settings: 'FILL' 1;">verified</span>
+<span class="font-label-lg text-label-lg text-[#2D5A27]">Guardian Verified Platform</span>
+</div>
+</main>
+<!-- Bottom Navigation suppressed for linear/transactional Welcome screen intent -->
+</body></html>
