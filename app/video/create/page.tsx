@@ -337,9 +337,14 @@ export default function CreateVideoPage() {
 
       const data = await r.json();
       setSessionId(data.session_id);
-      setSuggestions(data.suggestions || []);
+      // vediomodel returns suggestions as objects {id,title,...} or strings — normalise both
+      const rawSuggestions: any[] = data.suggestions || [];
+      const normSuggestions: string[] = rawSuggestions.map((s: any) =>
+        typeof s === 'string' ? s : (s.title || s.description || s.id || JSON.stringify(s))
+      );
+      setSuggestions(normSuggestions);
       setSubject(data.subject || '');
-      setFocusTopic(data.suggestions?.[0] || '');
+      setFocusTopic(normSuggestions[0] || '');
       setAnalyzeProgress(100);
       setAnalyzeStep('Analysis complete!');
       await new Promise(r => setTimeout(r, 600));

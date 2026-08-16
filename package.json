@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "dev:all": "concurrently --names \"NEXT,PYTHON\" --prefix-colors \"cyan,yellow\" \"next dev\" \"npm run video:start\"",
+    "dev:ui": "next dev",
+    "dev": "concurrently --names \"NEXT,PYTHON\" --prefix-colors \"cyan,yellow\" \"next dev\" \"npm run video:start\"",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
