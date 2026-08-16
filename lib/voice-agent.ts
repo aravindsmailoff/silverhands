@@ -157,19 +157,9 @@ export function findAccountByPassword(passwordInput: string): UserAccountEntry |
     const account = registry[key];
     if (account && account.security && account.security.password) {
       const pass = account.security.password.trim().toLowerCase();
-      if (pass === cleanInput || pass.includes(cleanInput) || cleanInput.includes(pass)) {
+      if (pass === cleanInput || pass === cleanInput) {
         return account;
       }
-    }
-  }
-
-  // Fallback: If 1 account exists, auto-link password
-  if (keys.length === 1) {
-    const singleAccount = registry[keys[0]];
-    if (singleAccount) {
-      singleAccount.security.password = passwordInput;
-      saveAccountsRegistry(registry);
-      return singleAccount;
     }
   }
 
@@ -188,7 +178,6 @@ export function findAccountByVoicePin(pinInput: string): UserAccountEntry | null
 
   if (keys.length === 0) return null;
 
-  // 1. Match against registered accounts
   for (const key of keys) {
     const account = registry[key];
     if (account && account.security && account.security.voicePin) {
@@ -197,33 +186,11 @@ export function findAccountByVoicePin(pinInput: string): UserAccountEntry | null
 
       if (
         (cleanInput && pinDigits === cleanInput) ||
-        (cleanInput && cleanInput.length >= 2 && (pinDigits.includes(cleanInput) || cleanInput.includes(pinDigits))) ||
+        (cleanInput && cleanInput.length >= 4 && pinDigits === cleanInput) ||
         pinRaw === rawInput
       ) {
         return account;
       }
-    }
-  }
-
-  // 2. Fallback: If 1 account exists in registry, auto-link spoken PIN to that user
-  if (keys.length === 1) {
-    const singleAccount = registry[keys[0]];
-    if (singleAccount && singleAccount.userName) {
-      singleAccount.security.voicePin = pinInput;
-      saveAccountsRegistry(registry);
-      return singleAccount;
-    }
-  }
-
-  // 3. Check active user account
-  const activeUser = getActiveUserAccount();
-  if (activeUser) {
-    const activeKey = normalizeUserName(activeUser);
-    if (registry[activeKey]) {
-      const activeAccount = registry[activeKey];
-      activeAccount.security.voicePin = pinInput;
-      saveAccountsRegistry(registry);
-      return activeAccount;
     }
   }
 

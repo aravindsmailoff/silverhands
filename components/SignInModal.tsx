@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   Camera, KeyRound, Mic, ShieldCheck, CheckCircle2, X, Sparkles, RefreshCw, 
-  Sun, Moon, Zap, UserCheck, PlusCircle, Lock, ScanFace, UserPlus, AlertCircle, Trash2, User
+  UserCheck, ScanFace, AlertCircle, Trash2, Lock
 } from 'lucide-react';
 import { voiceService } from '@/lib/voice';
 import { 
@@ -27,7 +27,10 @@ async function compareFacePhotos(liveCanvas: HTMLCanvasElement, targetPhotoUrl: 
   return new Promise((resolve) => {
     if (!targetPhotoUrl) { resolve(0); return; }
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    // Only set crossOrigin for external http URLs, not base64 data URLs
+    if (targetPhotoUrl.startsWith('http')) {
+      img.crossOrigin = 'anonymous';
+    }
     img.onload = () => {
       try {
         const size = 32;
@@ -74,7 +77,7 @@ async function compareFacePhotos(liveCanvas: HTMLCanvasElement, targetPhotoUrl: 
 
 export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOnboarding }: SignInModalProps) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'voice_pin' | 'face' | 'password'>('voice_pin');
+  const [activeTab, setActiveTab] = useState<'face' | 'voice_pin' | 'password'>('face');
   
   // Voice PIN state
   const [voicePinInput, setVoicePinInput] = useState('');
@@ -161,7 +164,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
     }
   };
 
-  // --- TAB 1: VOICE PIN MATCHING ---
+  // --- TAB 1: STRICT VOICE PIN MATCHING ---
   const processVoicePinSubmission = async (pin: string) => {
     setPinErrorMsg(null);
     if (!pin || pin.length < 4) {
@@ -192,8 +195,8 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
       voiceService.speak(`Voice PIN recognized! Welcome back, ${userName}!`, 'en-IN');
       setTimeout(() => completeSignIn(userName), 1200);
     } else {
-      setPinErrorMsg("Voice PIN not recognized. Please check your PIN or tap Create New Account.");
-      voiceService.speak("Voice PIN not recognized. Please try again or create a new account.", 'en-IN');
+      setPinErrorMsg("Access Denied: Voice PIN not recognized for any registered user.");
+      voiceService.speak("Access denied. Voice PIN not recognized.", 'en-IN');
     }
   };
 
@@ -216,7 +219,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
     });
   };
 
-  // --- TAB 2: ACCURATE FACE ID RECOGNITION WITH PERCEPTUAL IMAGE MATCHING ---
+  // --- TAB 2: STRICT FACE ID RECOGNITION (NO FALLBACKS) ---
   const startCameraScan = async () => {
     setIsScanningFace(true);
     setFaceVerified(false);
@@ -241,6 +244,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
         setTimeout(async () => {
           let bestMatchUser: string | null = null;
           let highestScore = 0;
+          const SIMILARITY_THRESHOLD = 50; // Required similarity score
 
           if (videoRef.current) {
             const video = videoRef.current;
@@ -255,7 +259,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
               for (const acc of registeredAccountsList) {
                 if (acc.photoUrl) {
                   const score = await compareFacePhotos(canvas, acc.photoUrl);
-                  if (score > highestScore) {
+                  if (score >= SIMILARITY_THRESHOLD && score > highestScore) {
                     highestScore = score;
                     bestMatchUser = acc.userName;
                   }
@@ -264,29 +268,17 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
             }
           }
 
-          // If no face photo matched or only 1 registered account exists, use closest user account
-          if (!bestMatchUser) {
-            if (registeredAccountsList.length === 1) {
-              bestMatchUser = registeredAccountsList[0].userName;
-            } else if (registeredAccountsList.length > 1) {
-              const active = getActiveUserAccount();
-              if (active && registeredAccountsList.some(a => a.userName.toLowerCase() === active.toLowerCase())) {
-                bestMatchUser = active;
-              } else {
-                bestMatchUser = registeredAccountsList[0].userName;
-              }
-            }
-          }
-
+          // Strict checking: ONLY log in if a valid face match was found
           if (bestMatchUser) {
             setDetectedAccountName(bestMatchUser);
             setFaceVerified(true);
             voiceService.speak(`Face Recognized! Welcome back, ${bestMatchUser}!`, 'en-IN');
             setTimeout(() => completeSignIn(bestMatchUser!), 1400);
           } else {
+            stopCamera();
             setIsScanningFace(false);
-            setFaceErrorMsg("No registered user account found with Face ID. Please create a new account.");
-            voiceService.speak("No registered face account found. Please create a new account.", 'en-IN');
+            setFaceErrorMsg("Face ID Not Recognized. Access Denied.");
+            voiceService.speak("Face ID not recognized. Access denied.", 'en-IN');
           }
         }, 2200);
 
@@ -301,7 +293,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
     }
   };
 
-  // --- TAB 3: PASSWORD MATCHING ---
+  // --- TAB 3: STRICT PASSWORD MATCHING ---
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setPasswordErrorMsg(null);
@@ -312,7 +304,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
       const cleanPass = passwordInput.trim().toLowerCase();
       const dbMatch = registeredAccountsList.find(acc => {
         const p = (acc.password || '').trim().toLowerCase();
-        return p && (p === cleanPass || p.includes(cleanPass) || cleanPass.includes(p));
+        return p && (p === cleanPass);
       });
       if (dbMatch) {
         matchedAccount = {
@@ -329,8 +321,8 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
       voiceService.speak(`Password Recognized! Welcome back, ${userName}!`, 'en-IN');
       completeSignIn(userName);
     } else {
-      setPasswordErrorMsg("Incorrect password for this account. Please try again.");
-      voiceService.speak("Incorrect password. Please try again.", 'en-IN');
+      setPasswordErrorMsg("Access Denied: Incorrect password. Please try again.");
+      voiceService.speak("Access denied. Incorrect password.", 'en-IN');
     }
   };
 
@@ -380,43 +372,8 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
           </button>
         </div>
 
-        {/* Registered Accounts Selector Bar (If multiple accounts exist) */}
-        {registeredAccountsList.length > 0 && (
-          <div className="px-6 py-3 bg-[#FAF9F6] border-b border-[#E3E2E0]">
-            <div className="text-[11px] font-extrabold text-[#44474E] uppercase tracking-wider mb-2">
-              Select Your Account:
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {registeredAccountsList.map((acc, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => {
-                    setDetectedAccountName(acc.userName);
-                    completeSignIn(acc.userName);
-                  }}
-                  className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border-2 border-[#E3E2E0] hover:border-[#031635] rounded-full text-xs font-bold text-[#031635] shadow-sm transition active:scale-95"
-                >
-                  <User className="w-3.5 h-3.5 text-[#031635]" />
-                  {acc.userName}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Auth Mode Tabs */}
         <div className="flex border-b border-[#E3E2E0] bg-[#FAF9F6]">
-          <button
-            onClick={() => { stopCamera(); setActiveTab('voice_pin'); }}
-            className={`flex-1 py-3.5 px-3 text-xs font-extrabold flex items-center justify-center gap-1.5 border-b-2 transition ${
-              activeTab === 'voice_pin'
-                ? 'border-[#031635] text-[#031635] bg-white'
-                : 'border-transparent text-[#75777F] hover:text-[#031635]'
-            }`}
-          >
-            <Mic className="w-4 h-4 text-[#FDBC13]" /> Voice PIN
-          </button>
-
           <button
             onClick={() => { stopCamera(); setIsScanningFace(false); setActiveTab('face'); }}
             className={`flex-1 py-3.5 px-3 text-xs font-extrabold flex items-center justify-center gap-1.5 border-b-2 transition ${
@@ -426,6 +383,17 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
             }`}
           >
             <ScanFace className="w-4 h-4 text-[#031635]" /> Face ID
+          </button>
+
+          <button
+            onClick={() => { stopCamera(); setActiveTab('voice_pin'); }}
+            className={`flex-1 py-3.5 px-3 text-xs font-extrabold flex items-center justify-center gap-1.5 border-b-2 transition ${
+              activeTab === 'voice_pin'
+                ? 'border-[#031635] text-[#031635] bg-white'
+                : 'border-transparent text-[#75777F] hover:text-[#031635]'
+            }`}
+          >
+            <Mic className="w-4 h-4 text-[#FDBC13]" /> Voice PIN
           </button>
 
           <button
@@ -443,7 +411,73 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
         {/* Modal Body Content */}
         <div className="p-6 space-y-6">
           
-          {/* ==================== TAB 1: VOICE PIN SIGN IN ==================== */}
+          {/* ==================== TAB 1: FACE ID SIGN IN (STRICT RECOGNITION) ==================== */}
+          {activeTab === 'face' && (
+            <div className="text-center space-y-5">
+              {!isScanningFace ? (
+                <div className="space-y-5">
+                  <div className="relative w-24 h-24 bg-[#D8E2FF] text-[#031635] rounded-full flex items-center justify-center mx-auto border-4 border-[#031635] shadow-lg">
+                    <ScanFace className="w-12 h-12 text-[#031635]" />
+                  </div>
+
+                  <div className="space-y-1">
+                    <h3 className="text-2xl font-black text-[#031635]">Face ID Recognition</h3>
+                    <p className="text-sm text-[#44474E]">
+                      Position your face in the camera to authenticate your user profile.
+                    </p>
+                  </div>
+
+                  {faceErrorMsg && (
+                    <div className="p-4 bg-rose-50 border-2 border-rose-300 rounded-2xl text-xs font-bold text-rose-800 text-left flex items-start gap-2 animate-pulse">
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <div>{faceErrorMsg}</div>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={startCameraScan}
+                    className="w-full py-4 bg-[#031635] text-white text-lg font-bold rounded-2xl shadow-lg hover:bg-[#1a2b4b] flex items-center justify-center gap-3 transition active:scale-95"
+                  >
+                    <ScanFace className="w-6 h-6 text-[#FDBC13]" /> Scan Face ID
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4 flex flex-col items-center relative">
+                  <div className="relative p-4 rounded-full bg-gradient-to-r from-amber-200 via-white to-amber-100 shadow-[0_0_80px_rgba(253,188,19,0.7)]">
+                    <div className="relative w-64 h-64 rounded-full overflow-hidden border-4 border-[#FDBC13] shadow-2xl bg-black flex items-center justify-center">
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className="w-full h-full object-cover transform -scale-x-100"
+                        style={{ filter: 'brightness(1.35) contrast(1.25)' }}
+                      />
+                      
+                      <div className="absolute inset-0 border-4 border-dashed border-[#FDBC13] rounded-full animate-spin opacity-80" style={{ animationDuration: '6s' }} />
+
+                      {faceVerified && (
+                        <div className="absolute inset-0 bg-emerald-950/90 backdrop-blur-sm flex flex-col items-center justify-center text-white space-y-2">
+                          <CheckCircle2 className="w-16 h-16 text-emerald-400 animate-bounce" />
+                          <span className="text-xl font-extrabold text-center px-4">
+                            Welcome Back, {detectedAccountName}!
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {!faceVerified && (
+                    <div className="text-xs uppercase font-extrabold tracking-widest text-[#2D5A27] flex items-center justify-center gap-1.5">
+                      <RefreshCw className="w-4 h-4 animate-spin text-[#031635]" /> Authenticating Face Biometrics...
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ==================== TAB 2: VOICE PIN SIGN IN ==================== */}
           {activeTab === 'voice_pin' && (
             <div className="text-center space-y-6">
               <div className="w-20 h-20 bg-[#FFDEA3] text-[#6B4D00] rounded-full flex items-center justify-center mx-auto shadow-md">
@@ -491,72 +525,6 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
                   {isListeningPin ? 'Listening for 4 digits...' : '🎙️ Speak Voice PIN'}
                 </button>
               </div>
-            </div>
-          )}
-
-          {/* ==================== TAB 2: FACE ID SIGN IN ==================== */}
-          {activeTab === 'face' && (
-            <div className="text-center space-y-5">
-              {!isScanningFace ? (
-                <div className="space-y-5">
-                  <div className="relative w-24 h-24 bg-[#D8E2FF] text-[#031635] rounded-full flex items-center justify-center mx-auto border-4 border-[#031635] shadow-lg">
-                    <ScanFace className="w-12 h-12 text-[#031635]" />
-                  </div>
-
-                  <div className="space-y-1">
-                    <h3 className="text-2xl font-black text-[#031635]">Face ID Recognition</h3>
-                    <p className="text-sm text-[#44474E]">
-                      Position your face in the camera to match your facial biometrics.
-                    </p>
-                  </div>
-
-                  {faceErrorMsg && (
-                    <div className="p-4 bg-amber-50 border-2 border-amber-300 rounded-2xl text-xs font-bold text-amber-800 text-left flex items-start gap-2">
-                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                      <div>{faceErrorMsg}</div>
-                    </div>
-                  )}
-
-                  <button
-                    onClick={startCameraScan}
-                    className="w-full py-4 bg-[#031635] text-white text-lg font-bold rounded-2xl shadow-lg hover:bg-[#1a2b4b] flex items-center justify-center gap-3 transition active:scale-95"
-                  >
-                    <ScanFace className="w-6 h-6 text-[#FDBC13]" /> Scan Face ID
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-4 flex flex-col items-center relative">
-                  <div className="relative p-4 rounded-full bg-gradient-to-r from-amber-200 via-white to-amber-100 shadow-[0_0_80px_rgba(253,188,19,0.7)]">
-                    <div className="relative w-64 h-64 rounded-full overflow-hidden border-4 border-[#FDBC13] shadow-2xl bg-black flex items-center justify-center">
-                      <video
-                        ref={videoRef}
-                        autoPlay
-                        playsInline
-                        muted
-                        className="w-full h-full object-cover transform -scale-x-100"
-                        style={{ filter: 'brightness(1.35) contrast(1.25)' }}
-                      />
-                      
-                      <div className="absolute inset-0 border-4 border-dashed border-[#FDBC13] rounded-full animate-spin opacity-80" style={{ animationDuration: '6s' }} />
-
-                      {faceVerified && (
-                        <div className="absolute inset-0 bg-emerald-950/90 backdrop-blur-sm flex flex-col items-center justify-center text-white space-y-2">
-                          <CheckCircle2 className="w-16 h-16 text-emerald-400 animate-bounce" />
-                          <span className="text-xl font-extrabold text-center px-4">
-                            Welcome Back, {detectedAccountName}!
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {!faceVerified && (
-                    <div className="text-xs uppercase font-extrabold tracking-widest text-[#2D5A27] flex items-center justify-center gap-1.5">
-                      <RefreshCw className="w-4 h-4 animate-spin text-[#031635]" /> Matching Facial Biometrics...
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
           )}
 
@@ -610,7 +578,7 @@ export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOn
 
             <button
               onClick={() => {
-                if (confirm("Reset all accounts?")) {
+                if (confirm("Reset database and all saved accounts?")) {
                   resetAllAccountsToBlank();
                   stopCamera();
                   onClose();
