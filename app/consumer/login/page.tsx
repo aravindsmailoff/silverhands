@@ -3,7 +3,8 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { getConsumerRegistry, saveConsumerUser } from '@/lib/consumer-store';
+import { saveConsumerUser } from '@/lib/consumer-store';
+import { authService } from '@/lib/auth-service';
 import { Lock, Mail, ArrowRight, ShoppingBag, ShieldCheck } from 'lucide-react';
 
 export default function ConsumerLoginPage() {
@@ -25,6 +26,21 @@ export default function ConsumerLoginPage() {
     setIsLoading(true);
 
     try {
+      // 1. Try local IndexedDB authentication first
+      try {
+        const localUser = await authService.loginConsumer(email, password);
+        saveConsumerUser({
+          id: localUser.id,
+          username: localUser.username,
+          email: localUser.email || email,
+        });
+        router.push('/consumer/dashboard');
+        return;
+      } catch (localErr) {
+        // Continue to server fallback
+      }
+
+      // 2. Server API fallback if already in database
       const res = await fetch('/api/consumer/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

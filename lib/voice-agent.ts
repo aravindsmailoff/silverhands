@@ -123,17 +123,68 @@ export interface UserAccountEntry {
 }
 
 export function getAccountsRegistry(): Record<string, UserAccountEntry> {
+  let registry: Record<string, UserAccountEntry> = {};
   if (typeof window !== 'undefined') {
     try {
       const data = localStorage.getItem(REGISTRY_KEY);
       if (data) {
-        return JSON.parse(data);
+        registry = JSON.parse(data);
       }
     } catch (e) {
       console.warn('Failed reading accounts registry:', e);
     }
+
+    // Auto-seed standard demo provider accounts if not present
+    let modified = false;
+    if (!registry['lakshmi ammal']) {
+      registry['lakshmi ammal'] = {
+        userName: 'Lakshmi Ammal',
+        profile: {
+          name: 'Lakshmi Ammal',
+          skill: 'Traditional Cooking',
+          experience_years: 35,
+          location: 'Mylapore, Chennai',
+          language: 'Tamil & English',
+          services: ['Home Cooking', 'Tamil Cooking Class', 'Traditional Tailoring'],
+          availability: 'Weekdays 10 AM - 6 PM'
+        },
+        security: {
+          face: null,
+          voicePin: '1234',
+          password: 'silver123'
+        }
+      };
+      modified = true;
+    }
+
+    if (!registry['sundaram master']) {
+      registry['sundaram master'] = {
+        userName: 'Sundaram Master',
+        profile: {
+          name: 'Sundaram Master',
+          skill: 'Terracotta Pottery',
+          experience_years: 40,
+          location: 'Mandaveli, Chennai',
+          language: 'Tamil & English',
+          services: ['Pottery Workshop', 'Clay Sculpting', 'Terracotta Crafting'],
+          availability: 'Daily 9 AM - 5 PM'
+        },
+        security: {
+          face: null,
+          voicePin: '5678',
+          password: 'silver123'
+        }
+      };
+      modified = true;
+    }
+
+    if (modified) {
+      try {
+        localStorage.setItem(REGISTRY_KEY, JSON.stringify(registry));
+      } catch (e) {}
+    }
   }
-  return {};
+  return registry;
 }
 
 export function saveAccountsRegistry(registry: Record<string, UserAccountEntry>): void {

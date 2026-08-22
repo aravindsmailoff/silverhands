@@ -296,6 +296,144 @@ export async function initDatabaseSchema(): Promise<{ success: boolean; message:
       started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       ended_at TIMESTAMP
     );
+
+    -- ── Provider-scoped relational extensions ──
+
+    CREATE TABLE IF NOT EXISTS provider_profiles (
+      id VARCHAR(64) PRIMARY KEY,
+      provider_id VARCHAR(64) NOT NULL UNIQUE,
+      display_name VARCHAR(255) NOT NULL,
+      bio TEXT,
+      language VARCHAR(128),
+      is_public BOOLEAN DEFAULT false,
+      profile_complete BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS provider_skills (
+      id VARCHAR(64) PRIMARY KEY,
+      provider_id VARCHAR(64) NOT NULL,
+      skill_name VARCHAR(255) NOT NULL,
+      normalized_name VARCHAR(255) NOT NULL,
+      experience_years INTEGER,
+      is_confirmed BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT unq_provider_skill UNIQUE (provider_id, normalized_name)
+    );
+
+    CREATE TABLE IF NOT EXISTS provider_experience (
+      id VARCHAR(64) PRIMARY KEY,
+      provider_id VARCHAR(64) NOT NULL,
+      skill_id VARCHAR(64),
+      title VARCHAR(255) NOT NULL,
+      years INTEGER,
+      description TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS provider_locations (
+      id VARCHAR(64) PRIMARY KEY,
+      provider_id VARCHAR(64) NOT NULL,
+      locality VARCHAR(255),
+      city VARCHAR(255),
+      district VARCHAR(255),
+      state VARCHAR(255),
+      country VARCHAR(128) DEFAULT 'India',
+      is_primary BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS provider_services (
+      id VARCHAR(64) PRIMARY KEY,
+      provider_id VARCHAR(64) NOT NULL,
+      service_name VARCHAR(255) NOT NULL,
+      description TEXT,
+      is_active BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS provider_availability (
+      id VARCHAR(64) PRIMARY KEY,
+      provider_id VARCHAR(64) NOT NULL,
+      day_of_week SMALLINT NOT NULL CHECK (day_of_week BETWEEN 0 AND 6),
+      start_time TIME NOT NULL,
+      end_time TIME NOT NULL,
+      timezone VARCHAR(64) DEFAULT 'Asia/Kolkata',
+      is_active BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT chk_availability_times CHECK (start_time < end_time)
+    );
+
+    CREATE TABLE IF NOT EXISTS provider_appointments (
+      id VARCHAR(64) PRIMARY KEY,
+      provider_id VARCHAR(64) NOT NULL,
+      consumer_id VARCHAR(64) NOT NULL,
+      availability_id VARCHAR(64) NOT NULL,
+      slot_date DATE NOT NULL,
+      start_time TIME NOT NULL,
+      end_time TIME NOT NULL,
+      status VARCHAR(32) DEFAULT 'confirmed',
+      notes TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT unq_provider_slot UNIQUE (provider_id, slot_date, start_time)
+    );
+
+    CREATE TABLE IF NOT EXISTS provider_biometric_records (
+      id VARCHAR(64) PRIMARY KEY,
+      provider_id VARCHAR(64) NOT NULL,
+      embedding TEXT NOT NULL,
+      model_version VARCHAR(64) NOT NULL DEFAULT 'silverhands-v1-block128',
+      enrollment_version INTEGER DEFAULT 1,
+      is_active BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS biometric_audit_log (
+      id VARCHAR(64) PRIMARY KEY,
+      provider_id VARCHAR(64) NOT NULL,
+      action VARCHAR(64) NOT NULL,
+      success BOOLEAN NOT NULL,
+      trust_score NUMERIC,
+      ip_hash VARCHAR(128),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS provider_knowledge (
+      id VARCHAR(64) PRIMARY KEY,
+      provider_id VARCHAR(64) NOT NULL,
+      video_id VARCHAR(64),
+      topic VARCHAR(255),
+      skill VARCHAR(255),
+      language VARCHAR(64) DEFAULT 'en',
+      summary TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS provider_knowledge_chunks (
+      id VARCHAR(64) PRIMARY KEY,
+      provider_id VARCHAR(64) NOT NULL,
+      video_id VARCHAR(64),
+      knowledge_id VARCHAR(64),
+      content TEXT NOT NULL,
+      topic VARCHAR(255),
+      skill VARCHAR(255),
+      language VARCHAR(64) DEFAULT 'en',
+      timestamp_start NUMERIC,
+      timestamp_end NUMERIC,
+      embedding TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_provider_knowledge_provider ON provider_knowledge(provider_id);
+    CREATE INDEX IF NOT EXISTS idx_provider_knowledge_chunks_provider ON provider_knowledge_chunks(provider_id);
+    CREATE INDEX IF NOT EXISTS idx_provider_availability_provider ON provider_availability(provider_id);
+    CREATE INDEX IF NOT EXISTS idx_provider_appointments_provider ON provider_appointments(provider_id);
   `;
 
   try {
@@ -308,6 +446,12 @@ export async function initDatabaseSchema(): Promise<{ success: boolean; message:
       await pool.query('ALTER TABLE live_streams ADD COLUMN IF NOT EXISTS started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;');
       await pool.query('ALTER TABLE live_streams ADD COLUMN IF NOT EXISTS ended_at TIMESTAMP;');
       await pool.query('ALTER TABLE live_streams ALTER COLUMN meet_url DROP NOT NULL;');
+      await pool.query(`ALTER TABLE videos ADD COLUMN IF NOT EXISTS visibility VARCHAR(16) DEFAULT 'PRIVATE';`);
+      await pool.query(`ALTER TABLE videos ADD COLUMN IF NOT EXISTS provider_id VARCHAR(64);`);
+      await pool.query(`ALTER TABLE video_versions ADD COLUMN IF NOT EXISTS provider_id VARCHAR(64);`);
+      await pool.query(`ALTER TABLE video_versions ADD COLUMN IF NOT EXISTS visibility VARCHAR(16) DEFAULT 'PRIVATE';`);
+      await pool.query(`ALTER TABLE video_versions ADD COLUMN IF NOT EXISTS version_type VARCHAR(32) DEFAULT 'draft';`);
+      await pool.query(`ALTER TABLE video_versions ADD COLUMN IF NOT EXISTS status VARCHAR(32) DEFAULT 'READY';`);
     } catch (alterErr) {
       console.warn('[DB] ALTER TABLE migrations warning:', alterErr);
     }

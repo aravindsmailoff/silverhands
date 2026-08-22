@@ -8,17 +8,25 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
+    "test:unit": "node scratch/test_biometrics_suite.mjs && node scratch/test_location_intelligence.mjs && npx tsx scratch/test_jarvis_conversation_manager.mjs",
     "video:start": "cd video-backend && set PYTHONIOENCODING=utf-8&& uvicorn app:app --host 0.0.0.0 --port 8000 --reload",
     "video:install": "cd video-backend && pip install -r requirements.txt"
   },
   "dependencies": {
+    "@genkit-ai/google-genai": "^1.41.0",
+    "@genkit-ai/googleai": "^1.28.0",
+    "@mediapipe/tasks-vision": "^1.0.1",
+    "@types/leaflet": "^1.9.22",
     "clsx": "^2.1.1",
+    "genkit": "^1.41.0",
+    "leaflet": "^1.9.4",
     "lucide-react": "^1.31.0",
     "next": "16.3.1",
     "pg": "^8.23.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "tailwind-merge": "^3.6.0"
+    "tailwind-merge": "^3.6.0",
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

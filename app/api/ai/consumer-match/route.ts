@@ -27,7 +27,12 @@ export async function POST(req: Request) {
       } catch (e) {}
 
       try {
-        const vidRes = await pool.query(`SELECT * FROM recorded_videos ORDER BY recorded_at DESC`);
+        const vidRes = await pool.query(
+          `SELECT v.*, u.user_name as creator_name FROM videos v
+           LEFT JOIN user_accounts u ON v.creator_id = u.id
+           WHERE v.visibility = 'PUBLIC' AND v.status = 'PUBLISHED'
+           ORDER BY v.published_at DESC NULLS LAST`
+        );
         dbVideos = vidRes.rows || [];
       } catch (e) {}
     }
@@ -42,8 +47,8 @@ export async function POST(req: Request) {
       creator_location: 'India',
       creator_avatar: '👵🏽',
       image_url: p.image_url || 'https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?auto=format&fit=crop&w=800&q=80',
-      rating: 5.0,
-      reviews_count: 1,
+      rating: 0,
+      reviews_count: 0,
       stock: p.stock ?? 1,
       is_active: p.is_active !== false,
     }));
@@ -56,12 +61,12 @@ export async function POST(req: Request) {
       duration_mins: 60,
       category: l.category || 'cooking',
       creator_name: l.owner_name || 'Senior Creator',
-      creator_experience: 'Senior Master Artisan',
+      creator_experience: l.owner_name ? '' : '',
       creator_location: l.locality_label || 'India',
       creator_avatar: '👵🏽',
-      available_slots: ['Today 5:00 PM', 'Tomorrow 11:00 AM', 'Tomorrow 4:00 PM'],
+      available_slots: [],
       session_type: l.type === 'product' ? 'Product Order' : '1-on-1',
-      rating: 5.0,
+      rating: 0,
     }));
 
     const allVideos = dbVideos.map((v: any) => ({
@@ -73,7 +78,7 @@ export async function POST(req: Request) {
       creator_avatar: '👵🏽',
       thumbnail_url: 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?auto=format&fit=crop&w=800&q=80',
       video_duration: '15:00',
-      views_count: 42,
+      views_count: v.views || 0,
       posted_at: 'Recently posted',
       tags: [(v.topic || '').toLowerCase(), 'video', 'tutorial'],
     }));

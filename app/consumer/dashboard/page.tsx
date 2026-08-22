@@ -10,8 +10,10 @@ import {
 } from '@/lib/consumer-store';
 import { 
   Search, ShoppingBag, Video, Sparkles, Star, MapPin, 
-  CheckCircle2, Clock, Calendar, UserCheck, MessageSquare, Send, X, ArrowRight, ShieldCheck, LogOut, User, Play, Gift, Eye, Heart 
+  CheckCircle2, Clock, Calendar, UserCheck, MessageSquare, Send, X, ArrowRight, ShieldCheck, LogOut, User, Play, Gift, Eye, Heart, Bell 
 } from 'lucide-react';
+import { useRealtimeLocation } from '@/lib/hooks/useRealtimeLocation';
+import { useDeviceLocation } from '@/lib/hooks/useDeviceLocation';
 
 export default function ConsumerDashboardPage() {
   const router = useRouter();
@@ -38,6 +40,39 @@ export default function ConsumerDashboardPage() {
   const [videoViews, setVideoViews] = useState<number>(0);
   const [selectedSlot, setSelectedSlot] = useState<string>('');
   const [purchaseSuccessMsg, setPurchaseSuccessMsg] = useState<string | null>(null);
+
+  // Active Realtime Booking Tracker
+  const [activeBookingTracker, setActiveBookingTracker] = useState<{
+    id: string;
+    serviceName: string;
+    providerName: string;
+    slot: string;
+    price: number;
+    status: 'REQUESTED' | 'ACCEPTED' | 'REJECTED';
+  } | null>(null);
+
+  // Device GPS & Realtime Transport
+  const { coordinates } = useDeviceLocation(true);
+  const {
+    sentRequests,
+    sendServiceRequest,
+  } = useRealtimeLocation({
+    coordinates,
+    sharingEnabled: true,
+    radiusMeters: 5000,
+  });
+
+  // Sync real-time updates for the active booking
+  useEffect(() => {
+    if (activeBookingTracker) {
+      const match = sentRequests.find((r) => r.id === activeBookingTracker.id);
+      if (match && match.status !== activeBookingTracker.status) {
+        setActiveBookingTracker((prev) =>
+          prev ? { ...prev, status: match.status as 'REQUESTED' | 'ACCEPTED' | 'REJECTED' } : null
+        );
+      }
+    }
+  }, [sentRequests, activeBookingTracker]);
 
   // AI Matchmaker Chat State
   const [isAiChatOpen, setIsAiChatOpen] = useState(false);
@@ -197,14 +232,14 @@ export default function ConsumerDashboardPage() {
     return () => clearInterval(interval);
   }, [searchQuery, activeCategory]);
 
+  const effectiveQuery = (providerSearchQuery || searchQuery || '').toLowerCase().trim();
   const filteredProviders = providers.filter(p => {
-    if (!providerSearchQuery.trim()) return true;
-    const q = providerSearchQuery.toLowerCase();
+    if (!effectiveQuery) return true;
     return (
-      p.name.toLowerCase().includes(q) ||
-      p.skill.toLowerCase().includes(q) ||
-      p.category.toLowerCase().includes(q) ||
-      p.location.toLowerCase().includes(q)
+      p.name.toLowerCase().includes(effectiveQuery) ||
+      p.skill.toLowerCase().includes(effectiveQuery) ||
+      p.category.toLowerCase().includes(effectiveQuery) ||
+      p.location.toLowerCase().includes(effectiveQuery)
     );
   });
 
@@ -312,16 +347,56 @@ export default function ConsumerDashboardPage() {
     setTimeout(() => setPurchaseSuccessMsg(null), 5000);
   };
 
-  const executeSessionBooking = (sessionTitle: string, providerName: string, slot: string, price: number) => {
+  const executeSessionBooking = (
+    sessionTitle: string,
+    providerName: string,
+    slot: string,
+    price: number,
+    targetProviderId?: string
+  ) => {
     if (!slot) {
-      alert("Please select an available time slot for your paid 1-on-1 appointment!");
+      alert('Please select an available time slot for your paid 1-on-1 appointment!');
       return;
     }
-    setPurchaseSuccessMsg(`🎉 Appointment Confirmed! You booked a paid 1-on-1 live session "${sessionTitle}" with Service Provider ${providerName} for ${slot} (Fee: ₹${price}).`);
+
+    const pId = targetProviderId || selectedProvider?.id || 'usr_prov_lakshmi_ammal';
+    const reqId = sendServiceRequest({
+      providerId: pId,
+      serviceName: sessionTitle,
+      preferredTime: slot,
+      message: `Paid 1-on-1 appointment for ${sessionTitle} on ${slot} (Fee: ₹${price})`,
+    });
+
+    // Also dispatch HTTP create for cross-browser redundancy
+    const backendBase = process.env.NEXT_PUBLIC_API_BACKEND_URL || 'http://localhost:8000';
+    try {
+      fetch(`${backendBase}/api/requests/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestId: reqId,
+          consumerId: user?.id || 'usr_consumer_aarav',
+          consumerName: user?.username || 'Aarav Mehta',
+          providerId: pId,
+          serviceName: sessionTitle,
+          preferredTime: slot,
+          message: `Paid 1-on-1 appointment for ${sessionTitle} on ${slot} (Fee: ₹${price})`,
+        }),
+      }).catch(() => {});
+    } catch (e) {}
+
+    setActiveBookingTracker({
+      id: reqId,
+      serviceName: sessionTitle,
+      providerName,
+      slot,
+      price,
+      status: 'REQUESTED',
+    });
+
     setSelectedSession(null);
     setSelectedProvider(null);
     setSelectedSlot('');
-    setTimeout(() => setPurchaseSuccessMsg(null), 5000);
   };
 
   return (
@@ -357,8 +432,14 @@ export default function ConsumerDashboardPage() {
                 onClick={() => router.push('/providers')}
                 className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-2xl text-xs font-extrabold shadow-sm transition whitespace-nowrap"
               >
-                🔍 Search Providers
+                📋 Orders & Demands
               </button>
+              <Link
+                href="/nearby?role=consumer"
+                className="px-4 py-2 bg-[#031635] hover:bg-[#08295e] text-[#FDBC13] rounded-2xl text-xs font-extrabold shadow-sm transition whitespace-nowrap flex items-center gap-1.5"
+              >
+                <MapPin className="w-3.5 h-3.5" /> 📍 Live Radar
+              </Link>
             </div>
           </div>
 
@@ -1225,6 +1306,83 @@ export default function ConsumerDashboardPage() {
               <Send className="w-4 h-4" />
             </button>
           </form>
+        </div>
+      )}
+
+      {/* REALTIME BOOKING TRACKER MODAL */}
+      {activeBookingTracker && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-7 shadow-2xl border-2 border-[#031635] animate-scale-in text-center space-y-4">
+            {activeBookingTracker.status === 'REQUESTED' ? (
+              <>
+                <div className="w-16 h-16 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-3xl mx-auto animate-bounce">
+                  ⏳
+                </div>
+                <h3 className="text-2xl font-black text-[#031635]">Booking Request Sent!</h3>
+                <p className="text-sm font-semibold text-[#44474E]">
+                  We notified <strong>{activeBookingTracker.providerName}</strong> on their Senior Portal.
+                </p>
+
+                <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 text-left space-y-1.5">
+                  <div className="text-xs font-bold text-amber-800 uppercase tracking-wider">Service Details</div>
+                  <div className="text-base font-black text-[#031635]">{activeBookingTracker.serviceName}</div>
+                  <div className="text-xs font-bold text-[#44474E]">📅 Slot: {activeBookingTracker.slot}</div>
+                  <div className="text-xs font-bold text-[#44474E]">💰 Total: ₹{activeBookingTracker.price}</div>
+                </div>
+
+                <div className="p-3 bg-[#FAF9F6] rounded-2xl border border-[#E3E2E0] flex items-center justify-center gap-2 text-xs font-extrabold text-amber-800 animate-pulse">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                  Waiting for Senior to confirm with double-tap...
+                </div>
+
+                <button
+                  onClick={() => setActiveBookingTracker(null)}
+                  className="w-full py-3 bg-[#F4F3F1] hover:bg-[#E3E2E0] text-[#031635] font-extrabold text-sm rounded-2xl transition"
+                >
+                  Minimize & Browse
+                </button>
+              </>
+            ) : activeBookingTracker.status === 'ACCEPTED' ? (
+              <>
+                <div className="w-20 h-20 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-5xl mx-auto shadow-lg animate-bounce">
+                  🎉
+                </div>
+                <h3 className="text-2xl font-black text-emerald-800">Booking Confirmed!</h3>
+                <p className="text-base font-bold text-[#031635]">
+                  <strong>{activeBookingTracker.providerName}</strong> agreed to help you! ❤️
+                </p>
+
+                <div className="bg-emerald-50 border-2 border-emerald-300 rounded-2xl p-4 text-left space-y-1.5 shadow-sm">
+                  <div className="text-xs font-black text-emerald-800 uppercase tracking-wider">Confirmed Session</div>
+                  <div className="text-lg font-black text-[#031635]">{activeBookingTracker.serviceName}</div>
+                  <div className="text-sm font-bold text-emerald-900">📅 {activeBookingTracker.slot}</div>
+                </div>
+
+                <button
+                  onClick={() => setActiveBookingTracker(null)}
+                  className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-base rounded-2xl shadow-lg transition"
+                >
+                  Great, Thank You!
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="w-16 h-16 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-3xl mx-auto">
+                  ℹ️
+                </div>
+                <h3 className="text-xl font-black text-[#031635]">Provider is Busy</h3>
+                <p className="text-sm font-semibold text-[#44474E]">
+                  {activeBookingTracker.providerName} cannot take this appointment right now. Please select another time slot or another provider.
+                </p>
+                <button
+                  onClick={() => setActiveBookingTracker(null)}
+                  className="w-full py-3 bg-[#031635] text-white font-extrabold text-sm rounded-2xl"
+                >
+                  Close
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

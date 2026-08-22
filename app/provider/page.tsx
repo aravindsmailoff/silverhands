@@ -17,6 +17,7 @@ import {
 
 import SignInModal from '@/components/SignInModal';
 import { extractSpokenDigits } from '@/lib/semantic-extractor';
+import { authService } from '@/lib/auth-service';
 
 type AgentVisualState = 'IDLE' | 'AI_SPEAKING' | 'LISTENING_TO_YOU' | 'PROCESSING' | 'SECURITY_REGISTRATION' | 'COMPLETED';
 
@@ -348,6 +349,20 @@ export default function VoiceConversationalApp() {
       photoUrl: capturedFacePhoto || null
     });
 
+    // Also persist directly into authoritative IndexedDB
+    authService.registerProvider({
+      username: userName,
+      skill: profileState.skill || undefined,
+      experienceYears: profileState.experience_years,
+      location: profileState.location || undefined,
+      language: profileState.language || 'English',
+      services: profileState.services || [],
+      availability: profileState.availability || null,
+      password: passwordInput || undefined,
+      voicePin: voicePinInput || undefined,
+      photoUrl: capturedFacePhoto || null,
+    }).catch(e => console.warn('[IndexedDB] Provider registration save error:', e));
+
     setIsLoggedIn(true);
     setAgentState('COMPLETED');
 
@@ -400,6 +415,9 @@ export default function VoiceConversationalApp() {
               </Link>
               <Link href="/consumer/dashboard" className="px-5 py-2 rounded-full text-[#44474E] hover:text-[#031635] font-semibold text-sm transition">
                 Consumer Marketplace
+              </Link>
+              <Link href="/nearby" className="px-5 py-2 rounded-full text-[#44474E] hover:text-[#031635] font-semibold text-sm transition">
+                📍 Live Radar
               </Link>
             </nav>
           </div>

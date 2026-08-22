@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, BackgroundTasks, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -533,6 +533,298 @@ async def get_status(job_id: str):
         "logs": job["logs"],
         "result": job["result"]
     }
+
+
+# ─── REALTIME LOCATION & GEOFENCING WEBSOCKET GATEWAY ────────────────────────
+from location_service import location_manager, PublishedService
+
+@app.on_event("startup")
+async def on_startup_location():
+    location_manager.start_background_tasks()
+
+@app.websocket("/ws/location")
+async def websocket_location_endpoint(websocket: WebSocket):
+    """
+    Production-grade WebSocket location ingestion & targeted fan-out gateway.
+    """
+    await location_manager.handle_connection(websocket)
+
+
+@app.post("/api/services/publish")
+async def publish_service_endpoint(request: Request):
+    """
+    Authoritative cross-browser service publishing endpoint.
+    Stores the published service with GPS coordinates in shared backend state.
+    """
+    data = await request.json()
+    svc_id = data.get("serviceId") or data.get("id") or f"svc_{int(time.time()*1000)}"
+    prov_id = data.get("providerId") or data.get("userId") or "usr_prov_senior"
+    prov_name = data.get("providerName") or data.get("displayName") or "Senior Provider"
+    svc_name = data.get("serviceName") or data.get("title") or "Service"
+    cat = data.get("category") or "cooking"
+    desc = data.get("description") or ""
+    deliv = data.get("deliveryType") or "HOME_SERVICE"
+    pricing = data.get("pricing") or "₹800"
+    duration = data.get("duration") or "2 hours"
+    avail = data.get("availability") or "Weekdays 10 AM - 6 PM"
+    status = data.get("status") or "PUBLISHED"
+    lat = float(data.get("latitude") or data.get("lat") or 0.0)
+    lng = float(data.get("longitude") or data.get("lng") or 0.0)
+    acc = float(data.get("accuracy") or 10.0)
+    locality = data.get("locality") or "Mylapore, Chennai"
+    now = time.time()
+
+    pub_svc = PublishedService(
+        service_id=svc_id,
+        provider_id=prov_id,
+        provider_name=prov_name,
+        service_name=svc_name,
+        category=cat,
+        description=desc,
+        delivery_type=deliv,
+        pricing=pricing,
+        duration=duration,
+        availability=avail,
+        status=status,
+        latitude=lat,
+        longitude=lng,
+        accuracy=acc,
+        locality=locality,
+        created_at=now,
+        updated_at=now
+    )
+
+    await location_manager.service_store.put_service(pub_svc)
+    await location_manager._fanout_new_service(pub_svc)
+
+    return {
+        "success": True,
+        "service": pub_svc.to_dict(),
+        "message": f"Service '{svc_name}' published successfully."
+    }
+
+
+@app.get("/api/services/nearby")
+async def get_nearby_services_endpoint(
+    lat: float = 13.0827,
+    lng: float = 80.2707,
+    radius: float = 2000.0,
+    excludeUserId: str = "",
+    role: str = "consumer"
+):
+    """
+    Geofence query endpoint with role-awareness:
+    - If role == 'consumer': Returns nearby senior provider services & live senior providers (excluding excludeUserId).
+    - If role == 'senior': Returns nearby active consumers (excluding excludeUserId).
+    """
+    formatted = []
+    if role == "senior":
+        # Senior Provider looking for nearby consumers
+        nearby_candidates = await location_manager.store.query_nearby(excludeUserId or "none", lat, lng, radius)
+        for candidate, dist in nearby_candidates:
+            if excludeUserId and candidate.user_id == excludeUserId:
+                continue
+            if candidate.role != "consumer":
+                continue
+            formatted.append({
+                "userId": candidate.user_id,
+                "displayName": candidate.display_name,
+                "role": "consumer",
+                "skill": "Learner",
+                "services": [],
+                "serviceId": f"usr_cons_{candidate.user_id}",
+                "serviceName": "Looking for nearby services",
+                "category": "inquiry",
+                "pricing": "",
+                "duration": "",
+                "deliveryType": "IN_PERSON",
+                "description": f"Consumer {candidate.display_name} is nearby",
+                "availability": "Online",
+                "locality": "Nearby area",
+                "latitude": candidate.latitude,
+                "longitude": candidate.longitude,
+                "accuracy": candidate.accuracy,
+                "distanceMeters": dist,
+                "isLive": True,
+                "lastUpdated": int(candidate.last_updated * 1000)
+            })
+    else:
+        # Consumer looking for nearby senior services
+        results = await location_manager.service_store.query_nearby_services(lat, lng, radius)
+        seen_keys = set()
+        for svc, dist in results:
+            if excludeUserId and svc.provider_id == excludeUserId:
+                continue  # Never return viewer's own services
+            seen_keys.add(svc.provider_id)
+            d = svc.to_dict()
+            d["distanceMeters"] = dist
+            d["isLive"] = svc.provider_id in location_manager.active_connections
+            formatted.append(d)
+
+        # Also add any live connected seniors without formal published items
+        nearby_candidates = await location_manager.store.query_nearby(excludeUserId or "none", lat, lng, radius)
+        for candidate, dist in nearby_candidates:
+            if excludeUserId and candidate.user_id == excludeUserId:
+                continue
+            if candidate.role != "senior" or candidate.user_id in seen_keys:
+                continue
+            primary_svc = (candidate.services and candidate.services[0]) if candidate.services else (candidate.skill or "Crafts & Services")
+            formatted.append({
+                "userId": candidate.user_id,
+                "displayName": candidate.display_name,
+                "role": "senior",
+                "skill": candidate.skill or primary_svc,
+                "services": candidate.services or [primary_svc],
+                "serviceId": f"svc_live_{candidate.user_id}",
+                "serviceName": primary_svc,
+                "category": "crafts",
+                "pricing": "₹800",
+                "duration": "2 hours",
+                "deliveryType": "HOME_SERVICE",
+                "description": f"Senior provider {candidate.display_name}",
+                "availability": "Available Now",
+                "locality": "Nearby area",
+                "latitude": candidate.latitude,
+                "longitude": candidate.longitude,
+                "accuracy": candidate.accuracy,
+                "distanceMeters": dist,
+                "isLive": True,
+                "lastUpdated": int(candidate.last_updated * 1000)
+            })
+
+    formatted.sort(key=lambda x: x.get("distanceMeters", 0))
+    return {"success": True, "count": len(formatted), "services": formatted}
+
+
+@app.get("/api/services/all")
+async def get_all_services_endpoint():
+    """
+    Returns all published services in shared backend state.
+    """
+    services = await location_manager.service_store.get_all_published()
+    return {"success": True, "count": len(services), "services": [s.to_dict() for s in services]}
+
+
+# ─── SERVICE BOOKING & DOUBLE-TAP ACCEPTANCE ENDPOINTS ─────────────────────────
+from location_service import ActiveServiceRequest
+
+@app.post("/api/requests/create")
+async def create_service_request_endpoint(request: Request):
+    """
+    Creates a new service booking request from consumer to senior provider.
+    Fanned out in real-time to provider's WebSocket.
+    """
+    data = await request.json()
+    req_id = data.get("requestId") or f"req_{int(time.time()*1000)}"
+    cons_id = data.get("consumerId") or "usr_consumer_guest"
+    cons_name = data.get("consumerName") or "Aarav Mehta"
+    prov_id = data.get("providerId") or "usr_prov_lakshmi_ammal"
+    svc_name = data.get("serviceName") or "Service"
+    pref_time = data.get("preferredTime") or "Today at 6:00 PM"
+    msg = data.get("message") or f"Request for {svc_name}"
+    now = time.time()
+
+    # Calculate distance if coordinates available
+    dist = 0.0
+    prov_loc = await location_manager.store.get_location(prov_id)
+    cons_loc = await location_manager.store.get_location(cons_id)
+    prov_name = "Lakshmi Ammal"
+    if prov_loc:
+        prov_name = prov_loc.display_name
+        if cons_loc:
+            from location_service import haversine_distance_meters
+            dist = haversine_distance_meters(cons_loc.latitude, cons_loc.longitude, prov_loc.latitude, prov_loc.longitude)
+
+    active_req = ActiveServiceRequest(
+        id=req_id,
+        consumer_id=cons_id,
+        consumer_name=cons_name,
+        consumer_distance_meters=dist,
+        provider_id=prov_id,
+        provider_name=prov_name,
+        service_name=svc_name,
+        preferred_time=pref_time,
+        message=msg,
+        status="REQUESTED",
+        timestamp=now
+    )
+    await location_manager.request_store.put_request(active_req)
+
+    # Fan out to provider WebSocket if connected
+    prov_ws = location_manager.active_connections.get(prov_id)
+    if prov_ws:
+        try:
+            await prov_ws.send_json({
+                "type": "SERVICE_REQUEST_RECEIVED",
+                "request": active_req.to_dict()
+            })
+        except Exception:
+            pass
+
+    return {
+        "success": True,
+        "request": active_req.to_dict(),
+        "message": f"Booking request for '{svc_name}' sent to provider."
+    }
+
+
+@app.post("/api/requests/respond")
+async def respond_service_request_endpoint(request: Request):
+    """
+    Provider confirms/rejects a booking request (e.g. via double-tap).
+    Fanned out in real-time to consumer's WebSocket.
+    """
+    data = await request.json()
+    req_id = data.get("requestId")
+    action = data.get("action", "ACCEPT").upper()  # 'ACCEPT' | 'REJECT'
+
+    req = await location_manager.request_store.get_request(req_id)
+    if not req:
+        return {"success": False, "message": "Request not found"}
+
+    new_status = "ACCEPTED" if action == "ACCEPT" else "REJECTED"
+    req.status = new_status
+    req.timestamp = time.time()
+    await location_manager.request_store.put_request(req)
+
+    # Fan out to consumer WebSocket if connected
+    cons_ws = location_manager.active_connections.get(req.consumer_id)
+    if cons_ws:
+        try:
+            await cons_ws.send_json({
+                "type": "SERVICE_REQUEST_UPDATED",
+                "request": req.to_dict()
+            })
+        except Exception:
+            pass
+
+    # Also confirm back to provider
+    prov_ws = location_manager.active_connections.get(req.provider_id)
+    if prov_ws:
+        try:
+            await prov_ws.send_json({
+                "type": "SERVICE_REQUEST_UPDATED",
+                "request": req.to_dict()
+            })
+        except Exception:
+            pass
+
+    return {
+        "success": True,
+        "request": req.to_dict(),
+        "status": new_status,
+        "message": f"Request {new_status.lower()} successfully."
+    }
+
+
+@app.get("/api/requests/for-provider")
+async def get_requests_for_provider_endpoint(providerId: str):
+    """
+    Returns all requests for a specific provider.
+    """
+    reqs = await location_manager.request_store.get_for_provider(providerId)
+    return {"success": True, "count": len(reqs), "requests": [r.to_dict() for r in reqs]}
+
 
 if __name__ == "__main__":
     import uvicorn

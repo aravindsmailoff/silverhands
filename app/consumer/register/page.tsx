@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { saveConsumerUser } from '@/lib/consumer-store';
+import { authService } from '@/lib/auth-service';
 import { Lock, Mail, User as UserIcon, MapPin, ArrowRight, Sparkles } from 'lucide-react';
 
 export default function ConsumerRegisterPage() {
@@ -27,7 +28,22 @@ export default function ConsumerRegisterPage() {
     setIsLoading(true);
 
     try {
-      const res = await fetch('/api/consumer/register', {
+      // 1. Register in IndexedDB
+      const localUser = await authService.registerConsumer({
+        username: username.trim(),
+        email: email.trim(),
+        password,
+        location,
+      });
+
+      saveConsumerUser({
+        id: localUser.id,
+        username: localUser.username,
+        email: localUser.email || email,
+      });
+
+      // 2. Sync to server API in background if server available
+      fetch('/api/consumer/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -36,17 +52,11 @@ export default function ConsumerRegisterPage() {
           password,
           location
         })
-      });
+      }).catch(() => {});
 
-      const data = await res.json();
-      if (data.success && data.user) {
-        saveConsumerUser(data.user);
-        router.push('/consumer/dashboard');
-      } else {
-        setError(data.error || 'Registration failed.');
-      }
+      router.push('/consumer/dashboard');
     } catch (err: any) {
-      setError('An error occurred. Please try again.');
+      setError(err.message || 'Registration failed.');
     } finally {
       setIsLoading(false);
     }

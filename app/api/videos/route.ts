@@ -18,21 +18,34 @@ export async function GET(req: Request) {
         return NextResponse.json({ success: true, versions: res.rows });
       }
 
-      // Fetch from new videos table
+      // Fetch from new videos table — PUBLIC published only for consumer feed
+      const visibilityFilter = searchParams.get('visibility');
+      const publicOnly = searchParams.get('publicOnly') === 'true';
+
       let newQuery = `
         SELECT 
           v.id, v.creator_id, v.title, v.description, v.video_type, v.status, 
           v.source_type, v.storage_key, v.thumbnail_key, v.duration_seconds, 
-          v.transcript, v.views, v.likes, v.created_at, v.updated_at, v.published_at,
+          v.transcript, v.views, v.likes, v.visibility, v.created_at, v.updated_at, v.published_at,
           u.user_name as creator_name, u.face_photo_url as creator_avatar,
           (SELECT COUNT(*)::int FROM video_comments WHERE video_id = v.id) as comments_count
         FROM videos v
         LEFT JOIN user_accounts u ON v.creator_id = u.id
       `;
       const newParams: any[] = [];
+      const whereClauses: string[] = [];
       if (creatorName) {
-        newQuery += ` WHERE LOWER(u.user_name) = LOWER($1)`;
         newParams.push(creatorName);
+        whereClauses.push(`LOWER(u.user_name) = LOWER($${newParams.length})`);
+      }
+      if (publicOnly || visibilityFilter === 'PUBLIC') {
+        whereClauses.push(`v.visibility = 'PUBLIC' AND v.status = 'PUBLISHED'`);
+      } else if (visibilityFilter) {
+        newParams.push(visibilityFilter);
+        whereClauses.push(`v.visibility = $${newParams.length}`);
+      }
+      if (whereClauses.length) {
+        newQuery += ` WHERE ${whereClauses.join(' AND ')}`;
       }
       newQuery += ` ORDER BY v.created_at DESC`;
 
@@ -49,9 +62,10 @@ export async function GET(req: Request) {
         FROM recorded_videos
       `;
       const legacyParams: any[] = [];
+      legacyQuery += ` WHERE is_public = true`;
       if (creatorName) {
-        legacyQuery += ` WHERE LOWER(creator_name) = LOWER($1)`;
         legacyParams.push(creatorName);
+        legacyQuery += ` AND LOWER(creator_name) = LOWER($${legacyParams.length})`;
       }
       legacyQuery += ` ORDER BY recorded_at DESC`;
 
@@ -140,15 +154,21 @@ export async function POST(req: Request) {
       }
       const version = verRes.rows[0];
 
-      // Update main video record
+      // Update main video record — publish generated short as PUBLIC
       const updateSql = `
         UPDATE videos 
-        SET storage_key = $1, status = 'PUBLISHED', published_at = NOW(), duration_seconds = $2
+        SET storage_key = $1, status = 'PUBLISHED', visibility = 'PUBLIC',
+            published_at = NOW(), duration_seconds = $2
         WHERE id = $3
         RETURNING *
       `;
       const updateRes = await pool.query(updateSql, [version.storage_key, version.duration_seconds, version.video_id]);
-      return NextResponse.json({ success: true, video: updateRes.rows[0], message: 'Version published successfully' });
+      await pool.query(
+        `UPDATE video_versions SET visibility = 'PUBLIC', version_type = 'published_short', status = 'PUBLISHED'
+         WHERE id = $1`,
+        [publishVersionId]
+      );
+      return NextResponse.json({ success: true, video: updateRes.rows[0], message: 'Posted to profile successfully' });
     }
 
     // 2. Insert new version under existing video
@@ -175,9 +195,9 @@ export async function POST(req: Request) {
 
     const insertVideoSql = `
       INSERT INTO videos 
-        (id, creator_id, title, description, video_type, status, source_type, storage_key, thumbnail_key, duration_seconds, transcript)
+        (id, creator_id, title, description, video_type, status, source_type, storage_key, thumbnail_key, duration_seconds, transcript, visibility, provider_id)
       VALUES 
-        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       ON CONFLICT (id) DO UPDATE SET
         title = EXCLUDED.title,
         description = EXCLUDED.description,
@@ -187,18 +207,23 @@ export async function POST(req: Request) {
       RETURNING *
     `;
 
+    const isSourceUpload = (sourceType || 'RECORDED') !== 'GENERATED_SHORT';
+    const defaultVisibility = isSourceUpload ? 'PRIVATE' : 'PRIVATE';
+    const defaultStatus = isSourceUpload ? 'UPLOADED' : 'READY';
+
     const vidRes = await pool.query(insertVideoSql, [
       finalVideoId, finalCreatorId, finalTitle, description || null, videoType || 'tutorial', 
-      'READY', sourceType || 'RECORDED', storageKey || 'blob:video', thumbnailKey || null, durationSeconds || 0, transcript || null
+      defaultStatus, sourceType || 'RECORDED', storageKey || 'blob:video', thumbnailKey || null, durationSeconds || 0, transcript || null,
+      defaultVisibility, finalCreatorId
     ]);
 
-    // Automatically insert version 1
+    // Automatically insert version 1 as PRIVATE draft
     const ver1Id = `ver-${Date.now()}-1`;
     await pool.query(`
-      INSERT INTO video_versions (id, video_id, version_number, storage_key, video_type, duration_seconds)
-      VALUES ($1, $2, 1, $3, $4, $5)
+      INSERT INTO video_versions (id, video_id, version_number, storage_key, video_type, duration_seconds, visibility, version_type, provider_id)
+      VALUES ($1, $2, 1, $3, $4, $5, 'PRIVATE', $6, $7)
       ON CONFLICT DO NOTHING
-    `, [ver1Id, finalVideoId, storageKey || 'blob:video', videoType || 'tutorial', durationSeconds || 0]);
+    `, [ver1Id, finalVideoId, storageKey || 'blob:video', videoType || 'tutorial', durationSeconds || 0, isSourceUpload ? 'source' : 'draft', finalCreatorId]);
 
     return NextResponse.json({ success: true, video: vidRes.rows[0] });
   } catch (err: any) {

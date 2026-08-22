@@ -15,6 +15,7 @@ import {
   getAccountsRegistry
 } from '@/lib/voice-agent';
 import { extractSpokenDigits } from '@/lib/semantic-extractor';
+import { authService } from '@/lib/auth-service';
 
 interface SignInModalProps {
   isOpen: boolean;
@@ -123,7 +124,8 @@ async function compareFacePhotos(liveCanvas: HTMLCanvasElement, targetPhotoUrl: 
 
 export default function SignInModal({ isOpen, onClose, onSuccess, onStartVoiceOnboarding }: SignInModalProps) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'face' | 'voice_pin' | 'password'>('face');
+  const [activeTab, setActiveTab] = useState<'password' | 'voice_pin' | 'face'>('password');
+  const [usernameInput, setUsernameInput] = useState('');
   
   // Voice PIN state
   const [voicePinInput, setVoicePinInput] = useState('');

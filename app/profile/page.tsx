@@ -4,10 +4,15 @@ import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getSavedProfile, ProfileState, voiceAgent, setActiveUserAccount, getActiveUserAccount, getSavedSecurityCredentials } from '@/lib/voice-agent';
+import { authService } from '@/lib/auth-service';
+import { videoService, PlayableVideo } from '@/lib/video-service';
 import { 
   ShieldCheck, Mic, CheckCircle2, Star, MapPin, Languages, 
-  ChefHat, Award, ArrowRight, Edit3, ArrowLeft, LogOut, Trash2
+  ChefHat, Award, ArrowRight, Edit3, ArrowLeft, LogOut, Trash2, ScanFace
 } from 'lucide-react';
+import ProviderAvailabilityManager from '@/components/provider/ProviderAvailabilityManager';
+import ProviderServiceManager from '@/components/provider/ProviderServiceManager';
+import FaceScanner from '@/components/biometrics/FaceScanner';
 
 function ProfilePageContent() {
   const router = useRouter();
@@ -26,143 +31,158 @@ function ProfilePageContent() {
   });
 
   const [userFacePhoto, setUserFacePhoto] = useState<string | null>(null);
-  const [recordedVideos, setRecordedVideos] = useState<any[]>([]);
+  const [recordedVideos, setRecordedVideos] = useState<PlayableVideo[]>([]);
+  const [showFaceEnroll, setShowFaceEnroll] = useState(false);
+  const [providerId, setProviderId] = useState<string>('');
 
-  useEffect(() => {
-    const activeName = getActiveUserAccount();
-    const isOwn = !queryUsername || (activeName && queryUsername.toLowerCase() === activeName.toLowerCase());
+  const queryRole = searchParams ? searchParams.get('role') : null;
+  const queryUserId = searchParams ? searchParams.get('userId') : null;
+
+  const loadCreatorData = async () => {
+    let activeName = '';
+    let activeUserId = '';
+    let activeRole = 'senior';
+
+    // Check Consumer session
+    try {
+      const rawConsumer = localStorage.getItem('silverhands_consumer_user');
+      if (rawConsumer) {
+        const cons = JSON.parse(rawConsumer);
+        if (cons && (cons.username || cons.name)) {
+          activeName = cons.username || cons.name;
+          activeUserId = cons.id || `usr_consumer_${activeName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+          activeRole = 'consumer';
+        }
+      }
+    } catch (e) {}
+
+    // If not consumer, check Senior Provider session
+    if (!activeName) {
+      const activeProf = await authService.getActiveProfile();
+      activeName = activeProf?.displayName || getActiveUserAccount() || '';
+      activeUserId = activeProf?.userId || '';
+      activeRole = 'senior';
+    }
+
+    const isOwn =
+      (!queryUsername && !queryUserId) ||
+      (activeName && queryUsername?.toLowerCase() === activeName.toLowerCase()) ||
+      (activeUserId && queryUserId === activeUserId);
+
     setIsOwnProfile(!!isOwn);
 
-    // If it's the user's own profile, but they are not logged in, redirect them to login/home
-    if (isOwn && !activeName) {
-      const loaded = getSavedProfile(undefined);
-      if (!loaded || !loaded.name) {
-        router.push('/');
-        return;
-      }
-      setProfile(loaded);
+    const currentName = isOwn ? activeName : queryUsername || 'SilverHands Member';
+
+    if (isOwn && !currentName) {
+      router.push('/');
+      return;
     }
 
-    if (isOwn && activeName) {
-      const loaded = getSavedProfile(activeName);
-      if (loaded && loaded.name) {
-        setProfile(loaded);
-      }
-      const sec = getSavedSecurityCredentials(activeName);
-      if (sec && sec.face && sec.face.photoUrl) {
-        setUserFacePhoto(sec.face.photoUrl);
-      }
-    }
-
-    const currentName = isOwn ? (activeName || '') : (queryUsername || '');
-
-    if (currentName) {
-      // Fetch details from sync API
-      fetch('/api/users/sync')
-        .then(res => res.json())
-        .then(data => {
-          if (data.success && data.accounts && data.accounts.length > 0) {
-            const userAcc = data.accounts.find((a: any) => 
-              (a.user_name || '').toLowerCase() === currentName.toLowerCase()
-            );
-
-            if (userAcc) {
-              setProfile({
-                name: userAcc.user_name,
-                skill: userAcc.skill,
-                experience_years: userAcc.experience_years !== null && userAcc.experience_years !== undefined ? Number(userAcc.experience_years) : null,
-                location: userAcc.location,
-                language: userAcc.language || 'English',
-                services: (userAcc.services && userAcc.services !== '[]') 
-                  ? (typeof userAcc.services === 'string' ? JSON.parse(userAcc.services) : userAcc.services) 
-                  : [],
-                availability: userAcc.availability || null
-              });
-
-              if (userAcc.face_photo_url) {
-                setUserFacePhoto(userAcc.face_photo_url);
-              }
-            }
-          }
-        })
-        .catch(err => console.warn('[PostgreSQL Sync Warning]:', err));
-
-      // Fetch stored videos belonging STRICTLY to this user
-      fetch(`/api/videos?creatorName=${encodeURIComponent(currentName)}`)
-        .then(res => res.json())
-        .then(data => {
-          let apiVids: any[] = [];
-          if (data.success && data.videos) {
-            apiVids = data.videos.map((v: any) => ({
-              id: v.id,
-              topic: v.topic,
-              description: v.description,
-              recordedAt: new Date(v.recorded_at).toLocaleDateString(),
-              videoUrl: v.video_data || v.video_url,
-              isPublic: v.is_public !== undefined ? v.is_public : true
-            }));
-          }
-
-          let localVids: any[] = [];
-          if (isOwn && typeof window !== 'undefined') {
-            const saved = JSON.parse(localStorage.getItem('silverhands_recorded_videos') || '[]');
-            localVids = saved.filter((v: any) => !v.creatorName || (v.creatorName || '').toLowerCase() === currentName.toLowerCase());
-          }
-
-          // Merge by ID to prevent duplicates, showing the latest first
-          const merged = [...apiVids];
-          localVids.forEach((lv: any) => {
-            if (!merged.some((av: any) => av.id === lv.id)) {
-              merged.push({
-                id: lv.id,
-                topic: lv.topic,
-                description: lv.description,
-                recordedAt: lv.recordedAt ? new Date(lv.recordedAt).toLocaleDateString() : new Date().toLocaleDateString(),
-                videoUrl: lv.videoUrl,
-                isPublic: lv.is_public !== undefined ? lv.is_public : true
-              });
-            }
-          });
-
-          setRecordedVideos(merged);
-        })
-        .catch(() => {
-          if (isOwn && typeof window !== 'undefined') {
-            const saved = JSON.parse(localStorage.getItem('silverhands_recorded_videos') || '[]');
-            const userVids = saved.filter((v: any) => !v.creatorName || (v.creatorName || '').toLowerCase() === currentName.toLowerCase());
-            setRecordedVideos(userVids);
-          }
+    if (isOwn) {
+      const activeProf = await authService.getActiveProfile();
+      if (activeProf) {
+        setProviderId(activeProf.userId);
+        setProfile({
+          name: activeProf.displayName,
+          skill: activeProf.skill || (activeRole === 'senior' ? 'Senior Artisan' : 'Consumer'),
+          skills: (activeProf.skills || []).map((s) => ({
+            name: s.name,
+            type: s.type || 'primary',
+            experience_years: s.experience_years ?? null,
+          })),
+          experience_years: activeProf.experienceYears ?? null,
+          location: activeProf.location || null,
+          language: activeProf.language || 'English',
+          services: activeProf.services || [],
+          availability: activeProf.availability || null,
         });
+        if (activeProf.photoUrl) {
+          setUserFacePhoto(activeProf.photoUrl);
+        }
+      } else {
+        setProfile({
+          name: currentName,
+          skill: activeRole === 'senior' ? 'Senior Artisan' : 'Consumer',
+          experience_years: null,
+          location: 'Chennai, Tamil Nadu',
+          language: 'Tamil & English',
+          services: [],
+          availability: 'Available',
+        });
+      }
+    } else {
+      // Viewing another person's profile
+      const allProviders = await authService.getAllProviders();
+      const match = allProviders.find(
+        (p) =>
+          (queryUserId && p.profile.userId === queryUserId) ||
+          p.profile.displayName.toLowerCase() === currentName.toLowerCase() ||
+          p.user.username.toLowerCase() === currentName.toLowerCase()
+      );
+
+      if (match) {
+        setProviderId(match.profile.userId);
+        setProfile({
+          name: match.profile.displayName,
+          skill: match.profile.skill || 'Senior Service Provider',
+          skills: (match.profile.skills || []).map((s) => ({
+            name: s.name,
+            type: s.type || 'primary',
+            experience_years: s.experience_years ?? null,
+          })),
+          experience_years: match.profile.experienceYears ?? null,
+          location: match.profile.location || 'Nearby Area',
+          language: match.profile.language || 'English & Tamil',
+          services: match.profile.services || [],
+          availability: match.profile.availability || 'Available',
+        });
+        if (match.profile.photoUrl) {
+          setUserFacePhoto(match.profile.photoUrl);
+        }
+      } else {
+        // Fallback for Consumer profile or unregistered provider
+        setProviderId(queryUserId || `usr_${currentName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`);
+        setProfile({
+          name: currentName,
+          skill: queryRole === 'senior' ? 'Senior Service Provider' : 'Consumer',
+          skills: [],
+          experience_years: null,
+          location: 'Nearby Area',
+          language: 'English & Tamil',
+          services: [],
+          availability: 'Online',
+        });
+      }
     }
+
+    // Load creator videos if applicable
+    if (currentName) {
+      try {
+        const { publicVideos, privateVideos } = await videoService.getCreatorVideos(currentName);
+        setRecordedVideos([...publicVideos, ...privateVideos]);
+      } catch (err) {
+        console.warn('[ProfilePage] Error loading videos from videoService:', err);
+      }
+    }
+  };
+
+  useEffect(() => {
+    loadCreatorData();
   }, [queryUsername]);
 
   const handleDeleteVideo = async (id: string) => {
     if (!confirm("Are you sure you want to delete this video?")) return;
     try {
-      const res = await fetch(`/api/videos?id=${id}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (data.success) {
-        setRecordedVideos(prev => prev.filter(v => v.id !== id));
-        if (typeof window !== 'undefined') {
-          const saved = JSON.parse(localStorage.getItem('silverhands_recorded_videos') || '[]');
-          const filtered = saved.filter((v: any) => v.id !== id);
-          localStorage.setItem('silverhands_recorded_videos', JSON.stringify(filtered));
-        }
-      } else {
-        alert("Failed to delete video: " + (data.error || "Unknown error"));
-      }
+      await videoService.deleteVideo(id);
+      setRecordedVideos(prev => prev.filter(v => v.id !== id && v.versionId !== id && v.videoId !== id));
     } catch (err) {
       console.error('Failed to delete video:', err);
-      alert("Error deleting video. Is the server running?");
+      alert("Error deleting video from local storage.");
     }
   };
 
   const clearOldVideos = () => {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('silverhands_recorded_videos');
-    }
     setRecordedVideos([]);
-    alert("Old video cache cleared! Now record a new video in Video Studio to generate your dynamic AI description.");
   };
 
   const displayName = profile.name || 'Not provided yet';
@@ -200,7 +220,7 @@ function ProfilePageContent() {
                 Dashboard
               </Link>
               <Link href="/providers" className="px-5 py-2 rounded-full text-[#44474E] hover:text-[#031635] font-semibold text-sm transition">
-                Search Providers
+                Orders & Demands
               </Link>
               <Link href="/profile" className={`px-5 py-2 rounded-full text-sm transition ${isOwnProfile ? 'bg-[#031635] text-white font-bold shadow-sm' : 'text-[#44474E] hover:text-[#031635] font-semibold'}`}>
                 My Profile
@@ -389,7 +409,7 @@ function ProfilePageContent() {
                             🌐 Public Lesson (AI Short)
                           </span>
                           <div className="flex items-center gap-2">
-                            <span className="text-xs font-semibold text-[#75777F]">{vid.recordedAt}</span>
+                            <span className="text-xs font-semibold text-[#75777F]">{vid.publishedAt ? new Date(vid.publishedAt).toLocaleDateString() : 'Recently posted'}</span>
                             {isOwnProfile && (
                               <button
                                 onClick={() => handleDeleteVideo(vid.id)}
@@ -408,7 +428,7 @@ function ProfilePageContent() {
                         </div>
                       </div>
                       <div className="space-y-2 pt-2">
-                        <h3 className="font-extrabold text-[#031635] text-lg leading-snug">&quot;{vid.topic || 'Senior Lesson Video'}&quot;</h3>
+                        <h3 className="font-extrabold text-[#031635] text-lg leading-snug">&quot;{vid.title || 'Senior Lesson Video'}&quot;</h3>
                         <p className="text-sm text-[#44474E] leading-relaxed">
                           ✨ <span className="font-extrabold text-[#031635]">AI Description:</span> {vid.description || 'Step-by-step traditional recipe and craftsmanship lesson recorded by senior creator.'}
                         </p>
@@ -449,7 +469,7 @@ function ProfilePageContent() {
                             🔒 Saved (Full Video)
                           </span>
                           <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-semibold text-[#75777F]">{vid.recordedAt}</span>
+                            <span className="text-[10px] font-semibold text-[#75777F]">{vid.publishedAt ? new Date(vid.publishedAt).toLocaleDateString() : 'Saved'}</span>
                             <button
                               onClick={() => handleDeleteVideo(vid.id)}
                               className="text-rose-600 hover:text-rose-800 p-1 hover:bg-rose-50 rounded-lg transition"
@@ -463,12 +483,19 @@ function ProfilePageContent() {
                           <video src={vid.videoUrl} controls className="w-full h-full object-cover" />
                         </div>
                         <div>
-                          <h4 className="font-bold text-[#031635] text-sm truncate">{vid.topic || 'Saved Raw Video'}</h4>
+                          <h4 className="font-bold text-[#031635] text-sm truncate">{vid.title || 'Saved Raw Video'}</h4>
                           <p className="text-xs text-[#75777F] mt-1 line-clamp-2">{vid.description || 'Raw source video before AI compilation.'}</p>
                         </div>
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Senior Service Offerings & Coverage Area Manager */}
+              {isOwnProfile && (
+                <div className="pt-6 border-t border-[#E3E2E0]">
+                  <ProviderServiceManager />
                 </div>
               )}
             </div>
@@ -499,6 +526,35 @@ function ProfilePageContent() {
                 </div>
               </div>
             </div>
+
+            {isOwnProfile && providerId && (
+              <>
+                <div className="bg-[#031635] border-2 border-[#031635] rounded-3xl p-2 shadow-md">
+                  <ProviderAvailabilityManager providerId={providerId} />
+                </div>
+                <div className="bg-white border-2 border-[#E3E2E0] rounded-3xl p-6 shadow-md space-y-4">
+                  <h3 className="text-xl font-extrabold text-[#031635] flex items-center gap-2">
+                    <ScanFace className="w-6 h-6" /> Face Verification
+                  </h3>
+                  <p className="text-[#75777F] text-base">Enroll your face for secure provider identity checks.</p>
+                  {!showFaceEnroll ? (
+                    <button
+                      onClick={() => setShowFaceEnroll(true)}
+                      className="w-full py-4 bg-[#FDBC13] text-[#031635] font-bold rounded-xl text-lg"
+                    >
+                      Enroll Face
+                    </button>
+                  ) : (
+                    <FaceScanner
+                      mode="enroll"
+                      providerId={providerId}
+                      onSuccess={() => setShowFaceEnroll(false)}
+                      onCancel={() => setShowFaceEnroll(false)}
+                    />
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
         </div>

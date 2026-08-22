@@ -6,6 +6,8 @@ import React, {
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getSavedProfile } from '@/lib/voice-agent';
+import { videoService } from '@/lib/video-service';
+import { authService } from '@/lib/auth-service';
 import { saveVideoState, loadVideoState, clearVideoState } from '@/lib/video-cache';
 import {
   detectBothThumbs, detectTshape, detectBothOpenShaking,
@@ -342,29 +344,24 @@ export default function CreateVideoPage() {
       const data = await r.json();
       setSessionId(data.session_id);
 
-      // Pre-save original video record to database
-      const finalVidId = `vid-${Date.now()}`;
-      setDbVideoId(finalVidId);
-      const profile = getSavedProfile();
+      // Pre-save original master video record & blob to IndexedDB
+      const activeProf = await authService.getActiveProfile();
+      const userName = activeProf?.displayName || getSavedProfile()?.name || 'Senior Creator';
+      const creatorId = activeProf?.userId || `usr_${userName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+
       try {
-        await fetch('/api/videos', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            videoId: finalVidId,
-            creatorId: profile?.name ? profile.name.trim().toLowerCase().replace(/\s+/g, '_') : 'creator',
-            creatorName: profile?.name || 'Senior Creator',
-            title: data.subject || 'SilverHands Lesson',
-            description: 'Original raw source video before AI reframing (Private).',
-            sourceType: uploadFile ? 'UPLOADED' : 'RECORDED',
-            storageKey: `/videos/sessions/${data.session_id}/source.mp4`,
-            thumbnailKey: null,
-            durationSeconds: Math.round(data.duration || 60),
-            videoType: 'full'
-          })
+        const master = await videoService.saveMasterVideo({
+          creatorId,
+          creatorName: userName,
+          title: data.subject || 'SilverHands Lesson',
+          description: 'Original raw source video before AI reframing (Private).',
+          sourceType: uploadFile ? 'UPLOADED' : 'RECORDED',
+          durationSeconds: Math.round(data.duration || 60),
+          blob: blob,
         });
+        setDbVideoId(master.id);
       } catch (dbSaveErr) {
-        console.warn('[DB] Pre-saving video master record failed:', dbSaveErr);
+        console.warn('[IndexedDB] Pre-saving video master record failed:', dbSaveErr);
       }
 
       // vediomodel returns suggestions as objects {id,title,...} or strings — normalise both
@@ -423,25 +420,29 @@ export default function CreateVideoPage() {
           setClips(data.result.clips);
           setStage('preview');
 
-          // Save each generated clip version to pg
+          // Save each generated clip version to IndexedDB
           if (dbVideoId) {
-            data.result.clips.forEach(async (clip: any, idx: number) => {
+            const activeProf = await authService.getActiveProfile();
+            const userName = activeProf?.displayName || getSavedProfile()?.name || 'Senior Creator';
+            const creatorId = activeProf?.userId || `usr_${userName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+
+            for (let idx = 0; idx < data.result.clips.length; idx++) {
+              const clip = data.result.clips[idx];
               try {
-                await fetch('/api/videos', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    videoId: dbVideoId,
-                    versionNumber: idx + 2, // version 1 is original source
-                    storageKey: clip.video_url || '',
-                    videoType: 'short',
-                    durationSeconds: Math.round(clip.duration || 15)
-                  })
+                await videoService.addVideoVersion({
+                  videoId: dbVideoId,
+                  creatorId,
+                  creatorName: userName,
+                  versionNumber: idx + 2, // version 1 is original source
+                  title: clip.title || `Short Clip #${idx + 1}`,
+                  hookText: clip.hook_text || '',
+                  durationSeconds: Math.round(clip.duration || 15),
+                  storagePath: clip.video_url || '',
                 });
               } catch (saveVerErr) {
-                console.warn('[DB] Saving generated clip version failed:', saveVerErr);
+                console.warn('[IndexedDB] Saving generated clip version failed:', saveVerErr);
               }
-            });
+            }
           }
           return;
         }
@@ -529,75 +530,43 @@ export default function CreateVideoPage() {
     subject, selectedMode, focusTopic, jobId, clips, activeClip, saved
   ]);
 
-  // ─── Save generated clip to DB ────────────────────────────────────────────
+  // ─── Save generated clip to IndexedDB (Publish) ────────────────────────────
   const handleSave = async () => {
     const clip = clips[activeClip];
     if (!clip || saveInProgressRef.current) return;
     saveInProgressRef.current = true;
     setIsSaving(true);
     try {
-      const profile = getSavedProfile();
-
       if (dbVideoId) {
         // Publish the selected reframed clip version (activeClip + 2)
         const versionNumber = activeClip + 2;
-        await fetch('/api/videos', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            publishVersionId: `ver-${dbVideoId}-${versionNumber}`
-          })
-        });
+        const versionId = `ver_${dbVideoId}_${versionNumber}`;
+        await videoService.publishVideoVersion(versionId);
       } else {
-        // Simple fallback saving
-        await fetch('/api/videos', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            topic: clip.title || subject || 'SilverHands Video',
+        // Direct publish if recording without backend
+        const activeProf = await authService.getActiveProfile();
+        const userName = activeProf?.displayName || getSavedProfile()?.name || 'Senior Creator';
+        const creatorId = activeProf?.userId || `usr_${userName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+
+        if (sourceBlob) {
+          const master = await videoService.saveMasterVideo({
+            creatorId,
+            creatorName: userName,
+            title: clip.title || subject || 'SilverHands Video Lesson',
             description: clip.hook_text || clip.title || '',
-            videoUrl: clip.video_url || '',
-            creatorName: profile?.name,
-            isPublic: true,
-          }),
-        });
-      }
-      
-      // Fallback for when Postgres is disconnected
-      try {
-        const savedVideos = JSON.parse(localStorage.getItem('silverhands_recorded_videos') || '[]');
-        
-        // Push public short
-        savedVideos.push({
-          id: `vid-${Date.now()}-short`,
-          topic: clip.title || subject || 'SilverHands Video',
-          description: clip.hook_text || clip.title || '',
-          videoUrl: clip.video_url || '',
-          creatorName: profile?.name,
-          is_public: true,
-          recordedAt: new Date().toISOString()
-        });
-
-        // Push private full video
-        if (sessionId) {
-          savedVideos.push({
-            id: `vid-${Date.now()}-full`,
-            topic: `[Full Video] ${subject || 'Skill Lesson'}`,
-            description: 'Raw recorded video before AI reframing (Private).',
-            videoUrl: `/videos/sessions/${sessionId}/source.mp4`,
-            creatorName: profile?.name,
-            is_public: false,
-            recordedAt: new Date().toISOString()
+            sourceType: uploadFile ? 'UPLOADED' : 'RECORDED',
+            durationSeconds: Math.round(clip.duration || 15),
+            blob: sourceBlob,
           });
+          const verId = `ver_${master.id}_1`;
+          await videoService.publishVideoVersion(verId);
         }
-
-        localStorage.setItem('silverhands_recorded_videos', JSON.stringify(savedVideos));
-      } catch (e) {
-        console.error('Failed to save to local storage', e);
       }
       
       setSaved(true);
-    } catch { /* silent */ }
+    } catch (e) {
+      console.error('[VideoStudio] Error publishing video:', e);
+    }
     setIsSaving(false);
     saveInProgressRef.current = false;
   };
@@ -1070,7 +1039,7 @@ export default function CreateVideoPage() {
               </a>
               <button onClick={handleSave} disabled={isSaving || saved}
                 className="py-5 bg-[#031635] hover:bg-[#0d2b5e] disabled:opacity-60 text-[#FDBC13] font-black text-lg rounded-2xl flex items-center justify-center gap-3 transition border border-[#FDBC13]/30">
-                {saved ? <><CheckCircle className="w-6 h-6" /> Saved!</> : isSaving ? <><Loader2 className="w-6 h-6 animate-spin" /> Saving…</> : <><Save className="w-6 h-6" /> Save to Profile</>}
+                {saved ? <><CheckCircle className="w-6 h-6" /> Posted!</> : isSaving ? <><Loader2 className="w-6 h-6 animate-spin" /> Posting…</> : <><Save className="w-6 h-6" /> Post to Profile</>}
               </button>
             </div>
 

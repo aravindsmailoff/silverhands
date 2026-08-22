@@ -25,10 +25,10 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { creatorId, creatorName, title, meetUrl } = body;
+    const { creatorId, creatorName, title, description, meetUrl } = body;
 
-    if (!creatorId || !creatorName || !meetUrl) {
-      return NextResponse.json({ success: false, error: 'creatorId, creatorName, and meetUrl are required' }, { status: 400 });
+    if (!creatorId || !creatorName) {
+      return NextResponse.json({ success: false, error: 'creatorId and creatorName are required' }, { status: 400 });
     }
 
     const pool = await getPool();
@@ -43,9 +43,10 @@ export async function POST(req: Request) {
     );
 
     const streamId = `live-${Date.now()}`;
+    const finalMeetUrl = meetUrl || `/dashboard/live/${streamId}`;
     const insertSql = `
-      INSERT INTO live_streams (id, creator_id, creator_name, title, meet_url, status, viewer_count)
-      VALUES ($1, $2, $3, $4, $5, 'live', 0)
+      INSERT INTO live_streams (id, creator_id, creator_name, title, description, meet_url, status, viewer_count)
+      VALUES ($1, $2, $3, $4, $5, $6, 'live', 0)
       RETURNING *
     `;
     const result = await pool.query(insertSql, [
@@ -53,7 +54,8 @@ export async function POST(req: Request) {
       creatorId,
       creatorName,
       title || `${creatorName}'s Live Session`,
-      meetUrl
+      description || '',
+      finalMeetUrl
     ]);
 
     return NextResponse.json({ success: true, stream: result.rows[0] });
@@ -67,9 +69,10 @@ export async function DELETE(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const creatorId = searchParams.get('creatorId');
+    const streamId = searchParams.get('streamId');
 
-    if (!creatorId) {
-      return NextResponse.json({ success: false, error: 'creatorId is required' }, { status: 400 });
+    if (!creatorId && !streamId) {
+      return NextResponse.json({ success: false, error: 'creatorId or streamId is required' }, { status: 400 });
     }
 
     const pool = await getPool();
@@ -77,11 +80,17 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ success: false, error: 'Database connection not available' }, { status: 500 });
     }
 
-    // End active streams
-    await pool.query(
-      `UPDATE live_streams SET status = 'ended' WHERE creator_id = $1 AND status = 'live'`,
-      [creatorId]
-    );
+    if (streamId) {
+      await pool.query(
+        `UPDATE live_streams SET status = 'ended', ended_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [streamId]
+      );
+    } else {
+      await pool.query(
+        `UPDATE live_streams SET status = 'ended', ended_at = CURRENT_TIMESTAMP WHERE creator_id = $1 AND status = 'live'`,
+        [creatorId]
+      );
+    }
 
     return NextResponse.json({ success: true, message: 'Live stream stopped successfully' });
   } catch (err: any) {
